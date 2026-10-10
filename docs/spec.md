@@ -183,6 +183,12 @@ Media URLs carry tokens, not paths (§2). The Content-Security-Policy is
 pyTincture's plus `media-src 'self' blob: http: https:` (hls.js plays through
 `blob:` URLs) and `http: https:` in `connect-src` for network streams.
 
+**DLNA.** The one thing LizardKing does on the network by itself: when you
+open *Network (DLNA)* it sends an SSDP search (multicast, local network only)
+and talks to the media servers that answer. It plays only URLs on a server it
+discovered (`dlna.check_url`), refuses XML with a DTD, and serves a server's
+files to the page through its own origin (`/lk/file/<token>`).
+
 ## 9. Testing
 
 * `pytest`: the decision table, segment plans, the ffmpeg command line, a real

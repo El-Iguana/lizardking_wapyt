@@ -16,6 +16,7 @@ import subprocess
 import threading
 from typing import Optional
 
+from services import media
 from services.config import SUBTITLE_EXT, ffmpeg_bin
 
 # Two- and three-letter codes, and a few names people actually put in file names.
@@ -75,11 +76,11 @@ class SubtitleError(Exception):
 
 def to_vtt(path: str, stream: Optional[int] = None) -> bytes:
     """A subtitle file, or text stream ``stream`` (ffprobe index) of a media file, as WebVTT."""
-    key = (path, os.stat(path).st_mtime_ns, stream)
+    key = (path, 0 if media.is_remote(path) else os.stat(path).st_mtime_ns, stream)
     with _lock:
         if key in _cache:
             return _cache[key]
-    args = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-v", "error", "-i", path]
+    args = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-v", "error", *media.input_args(path), "-i", path]
     if stream is not None:
         args += ["-map", f"0:{int(stream)}"]
     args += ["-f", "webvtt", "-"]

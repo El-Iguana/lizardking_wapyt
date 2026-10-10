@@ -36,6 +36,7 @@ appcode/                   # pytincture modules_path
     transcode.py           #   HLS sessions: plan, playlist, ffmpeg args, restart-on-seek, reaper
     subtitles.py           #   sidecars + ffmpeg -f webvtt
     browse.py              #   places, folder listing, folder/playlist expansion
+    dlna.py                #   SSDP discovery, ContentDirectory Browse, DIDL parsing; dlna:// dialog paths
     playlists.py           #   M3U read/write — pure
     store.py               #   state.json: recent, positions, settings
     tokens.py              #   path <-> random token for media URLs
@@ -116,6 +117,26 @@ pytincture answers only the canonical host: `http://localhost:8777` got a bare
 *Invalid host header* (400) that looks like a blank page. Its Origin checks are
 pinned to `127.0.0.1`, so adding localhost to `allowed_hosts` is not enough;
 `with_localhost_redirect` in `service.py` sends it on with a 307 instead.
+
+### DLNA media servers
+
+`dlna.py` is a plain module (server table and titles must outlive a BFF call).
+The dialog sees `dlna://<udn>/<object id>` (both URL-quoted: MiniDLNA ids
+contain `$`); `PlayerService.browse`/`expand` dispatch on that scheme and never
+store it as `last_dir`. A server's **item** is its plain http URL, and that is
+the queue entry's `path`: `prepare` probes and transcodes it like a file
+(`media.is_remote`: no `os.stat` cache key, `-reconnect` input options), and
+direct play goes through `/lk/file/<token>`, which proxies the server with Range
+passed through (same origin: seeking and snapshots work). `dlna.check_url`
+refuses any URL whose origin is not a discovered server, so the page cannot
+make the server fetch arbitrary addresses. Live-tested against MiniDLNA 1.3.3
+(the NAS); the unit tests use canned XML.
+
+### SIGTERM stops the encoders
+
+uvicorn re-raises the signal that stopped it after shutting down; a default
+SIGTERM then killed the process before `transcode.sessions.shutdown()`, leaving
+ffmpeg running. `main()` turns SIGTERM into KeyboardInterrupt.
 
 ### CSP: hls.js needs `media-src blob:`
 

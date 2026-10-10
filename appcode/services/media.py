@@ -17,6 +17,7 @@ import subprocess
 import threading
 from fractions import Fraction
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from services.config import ffprobe_bin
 
@@ -204,16 +205,38 @@ class ProbeError(Exception):
     pass
 
 
+def is_remote(path: str) -> bool:
+    """An http(s) URL (a media server's item) rather than a local file."""
+    return path.startswith(("http://", "https://"))
+
+
+def extension(path: str) -> str:
+    """The file extension of a path or of a URL's path."""
+    if is_remote(path):
+        path = urlsplit(path).path
+    return os.path.splitext(path)[1]
+
+
+def input_args(path: str) -> list[str]:
+    """ffmpeg input options for ``path``: reconnect when a server drops an http read."""
+    if is_remote(path):
+        return ["-reconnect", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "5"]
+    return []
+
+
 def probe(path: str) -> dict:
-    """ffprobe a file, cached until its size or mtime changes."""
-    st = os.stat(path)
-    key = (path, st.st_size, st.st_mtime_ns)
+    """ffprobe a file, cached until its size or mtime changes (a URL: for the life of the process)."""
+    if is_remote(path):
+        key = (path, 0, 0)
+    else:
+        st = os.stat(path)
+        key = (path, st.st_size, st.st_mtime_ns)
     with _cache_lock:
         if key in _cache:
             return _cache[key]
     try:
         out = subprocess.run(
-            [ffprobe_bin(), "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
+            [ffprobe_bin(), "-v", "error", "-print_format", "json", "-show_format", "-show_streams", *input_args(path), path],
             capture_output=True, timeout=30, check=False,
         )
     except FileNotFoundError as error:

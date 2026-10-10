@@ -22,18 +22,34 @@ import os
 
 from pytincture.dataclass import backend_for_frontend
 
-from services import browse, media, playlists, startup, store, subtitles, tokens, transcode
+from services import browse, dlna, media, playlists, startup, store, subtitles, tokens, transcode
 from services.config import APP_NAME, REPO_URL, VERSION
 
 
 def _expand(path: str) -> str:
+    """A local path made absolute; a media server's http URL as it is."""
+    if dlna.is_url(path):
+        return path
     return os.path.abspath(os.path.expanduser(path))
 
 
+def _name(path: str) -> str:
+    """What to call a file in a message: its name, or a media server's title for it."""
+    if dlna.is_url(path):
+        return dlna.entry(path)["title"]
+    return os.path.basename(path)
+
+
 def _title(path: str, info: dict) -> tuple[str, str]:
-    """Title and subtitle: tags when the file has them, else the file name."""
+    """Title and subtitle: tags when the file has them, else the server's title or the file name."""
     tags = info.get("tags") or {}
     stem = os.path.splitext(os.path.basename(path))[0]
+    if dlna.is_url(path):
+        meta = dlna.known(path) or {}
+        recent = next((r for r in store.recent() if r.get("path") == path), {})
+        stem = meta.get("title") or recent.get("title") or dlna.entry(path)["title"]
+        if not (tags.get("artist") or tags.get("album")) and meta.get("subtitle"):
+            return tags.get("title") or stem, meta["subtitle"]
     if media.kind(info) == "audio":
         artist = tags.get("artist") or tags.get("album_artist") or ""
         album = tags.get("album") or ""
@@ -57,9 +73,11 @@ class PlayerService:
     # Disk ----------------------------------------------------------------
 
     def places(self) -> list:
-        return browse.places()
+        return browse.places() + [{"label": "Network (DLNA)", "path": dlna.SCHEME, "icon": "mdi-lan"}]
 
     def browse(self, path: str = "", show_all: bool = False) -> dict:
+        if dlna.is_dlna_path(path):
+            return dlna.listing(path, show_all=show_all)
         if not path:
             path = store.settings().get("last_dir") or ""
         result = browse.listing(path, show_all=show_all)
@@ -68,8 +86,19 @@ class PlayerService:
         return result
 
     def expand(self, paths: list, recursive: bool = True) -> list:
-        """Picked files, folders and playlists as queue entries."""
-        return browse.expand([_expand(p) for p in paths], recursive=recursive)
+        """Picked files, folders, playlists and media-server items as queue entries."""
+        out: list = []
+        for path in paths:
+            if dlna.is_dlna_path(path):
+                try:
+                    out += dlna.expand(path, recursive=recursive)
+                except dlna.DlnaError as error:
+                    raise ValueError(f"Cannot open that media server folder: {error}.") from error
+            elif dlna.is_url(path):
+                out.append(dlna.entry(path))
+            else:
+                out += browse.expand([_expand(path)], recursive=recursive)
+        return out
 
     def startup(self) -> list:
         """Files named on the command line, once."""
@@ -84,18 +113,23 @@ class PlayerService:
         played the way it is.
         """
         path = _expand(path)
-        if not os.path.isfile(path):
+        if dlna.is_url(path):
+            try:
+                dlna.check_url(path)
+            except dlna.DlnaError as error:
+                raise ValueError(f"Cannot play {_name(path)}: {error}.") from error
+        elif not os.path.isfile(path):
             raise ValueError(f"{os.path.basename(path)} is not there any more.")
         try:
             info = media.probe(path)
         except media.ProbeError as error:
-            raise ValueError(f"Cannot read {os.path.basename(path)}: {error}") from error
-        ext = os.path.splitext(path)[1]
+            raise ValueError(f"Cannot read {_name(path)}: {error}") from error
+        ext = media.extension(path)
         decision = media.plan(info, ext, caps or {}, audio)
         if force_transcode and decision["mode"] == "direct" and info.get("duration"):
             decision = {"mode": "transcode", "reasons": ["the browser could not decode it as it is"]}
         if decision["mode"] == "none":
-            raise ValueError(f"Cannot play {os.path.basename(path)}: {'; '.join(decision['reasons'])}.")
+            raise ValueError(f"Cannot play {_name(path)}: {'; '.join(decision['reasons'])}.")
 
         token = tokens.token_for(path)
         if decision["mode"] == "direct":
@@ -137,12 +171,17 @@ class PlayerService:
     def info(self, path: str, caps: dict | None = None, audio: int | None = None) -> dict:
         """The Media Information dialog: streams, tags and how it plays."""
         path = _expand(path)
+        if dlna.is_url(path):
+            try:
+                dlna.check_url(path)
+            except dlna.DlnaError as error:
+                raise ValueError(str(error)) from error
         try:
             info = media.probe(path)
         except media.ProbeError as error:
             raise ValueError(str(error)) from error
-        decision = media.plan(info, os.path.splitext(path)[1], caps or {}, audio)
-        return {"path": path, "name": os.path.basename(path), "info": info, "plan": decision,
+        decision = media.plan(info, media.extension(path), caps or {}, audio)
+        return {"path": path, "name": _name(path), "info": info, "plan": decision,
                 "encoder": transcode.encoder() if decision["mode"] == "transcode" else None}
 
     def save_position(self, path: str, position: float, duration: float | None = None) -> None:
@@ -151,7 +190,7 @@ class PlayerService:
     # Recent, settings ----------------------------------------------------
 
     def recent(self) -> list:
-        return [r for r in store.recent() if os.path.exists(r["path"])]
+        return [r for r in store.recent() if dlna.is_url(r["path"]) or os.path.exists(r["path"])]
 
     def clear_recent(self) -> None:
         store.clear_recent()
