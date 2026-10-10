@@ -187,7 +187,8 @@ pyTincture's plus `media-src 'self' blob: http: https:` (hls.js plays through
 open *Network (DLNA)* it sends an SSDP search (multicast, local network only)
 and talks to the media servers that answer. It plays only URLs on a server it
 discovered (`dlna.check_url`), refuses XML with a DTD, and serves a server's
-files to the page through its own origin (`/lk/file/<token>`).
+files to the page through its own origin (`/lk/file/<token>`), and its album
+art through `/lk/art/<token>` as JPEG, PNG, WebP or GIF only.
 
 ## 9. Testing
 

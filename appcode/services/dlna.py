@@ -159,6 +159,12 @@ def _kind(upnp_class: str, mime: str) -> str:
     return "file"
 
 
+def _art(node: ET.Element) -> str:
+    """The first http ``upnp:albumArtURI`` of a container or item, else ""."""
+    return next(((c.text or "").strip() for c in node
+                 if _local(c.tag) == "albumArtURI" and is_url((c.text or "").strip())), "")
+
+
 def parse_didl(xml: bytes | str) -> tuple[list[dict], list[dict]]:
     """A Browse result -> (containers, items), in the server's order."""
     root = _xml(xml)
@@ -169,7 +175,7 @@ def parse_didl(xml: bytes | str) -> tuple[list[dict], list[dict]]:
         if name == "container":
             count = node.get("childCount")
             containers.append({"id": node.get("id", ""), "parent": node.get("parentID", ""), "title": title,
-                               "count": int(count) if count and count.isdigit() else None})
+                               "count": int(count) if count and count.isdigit() else None, "art": _art(node)})
         elif name == "item":
             res = next((r for r in node if _local(r.tag) == "res"
                         and (r.get("protocolInfo") or "").startswith("http-get:") and is_url((r.text or "").strip())), None)
@@ -182,6 +188,7 @@ def parse_didl(xml: bytes | str) -> tuple[list[dict], list[dict]]:
                 "kind": _kind(_text(node, "class"), mime), "duration": _duration(res.get("duration", "")),
                 "size": int(size) if size and size.isdigit() else None,
                 "artist": _text(node, "artist") or _text(node, "creator"), "album": _text(node, "album"),
+                "art": _art(node),
             })
     return containers, items
 
@@ -288,6 +295,11 @@ def children(server: dict, object_id: str) -> tuple[list[dict], list[dict]]:
         start += PAGE
         if not got or start >= total:
             break
+    # A track without art of its own shows its album's (the container's).
+    with _lock:
+        album_art = (_containers.get((server["udn"], object_id)) or {}).get("art", "")
+    if album_art:
+        items = [item if item.get("art") else {**item, "art": album_art} for item in items]
     _remember(items)
     _remember_containers(server["udn"], containers)
     return containers, items
@@ -306,7 +318,7 @@ def _remember_containers(udn: str, containers: list[dict]) -> None:
         if len(_containers) > 20000:
             _containers.clear()
         for c in containers:
-            _containers[(udn, c["id"])] = {"title": c["title"], "parent": c["parent"]}
+            _containers[(udn, c["id"])] = {"title": c["title"], "parent": c["parent"], "art": c.get("art", "")}
 
 
 def label(server: dict, object_id: str) -> str:
@@ -331,7 +343,8 @@ def _remember(items: list[dict]) -> None:
             _titles.clear()
         for item in items:
             subtitle = " — ".join(x for x in (item.get("artist"), item.get("album")) if x)
-            _titles[item["url"]] = {"title": item["title"], "subtitle": subtitle, "kind": item["kind"]}
+            _titles[item["url"]] = {"title": item["title"], "subtitle": subtitle, "kind": item["kind"],
+                                    "art": item.get("art", "")}
 
 
 # What the BFF uses ---------------------------------------------------------------

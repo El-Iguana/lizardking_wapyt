@@ -23,6 +23,9 @@ from services.config import APP_NAME, VERSION, ffmpeg_bin
 router = APIRouter()
 
 _covers: dict[str, bytes] = {}
+_art: dict[str, tuple[bytes, str]] = {}
+ART_MAX_BYTES = 8 * 1024 * 1024
+ART_TYPES = ("image/jpeg", "image/png", "image/webp", "image/gif")
 _covers_lock = threading.Lock()
 
 
@@ -137,3 +140,31 @@ def cover(token: str) -> Response:
                 _covers.clear()
             _covers[path] = body
     return Response(body, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.get("/lk/art/{token}")
+def art(token: str) -> Response:
+    """A media server's album art, fetched for the page (which may only load images from here)."""
+    url = _path(token)
+    try:
+        dlna.check_url(url)
+    except dlna.DlnaError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    with _covers_lock:
+        cached = _art.get(url)
+    if cached is None:
+        try:
+            with urllib.request.urlopen(url, timeout=10) as upstream:
+                kind = upstream.headers.get_content_type()
+                body = upstream.read(ART_MAX_BYTES + 1)
+        except (urllib.error.URLError, OSError) as error:
+            raise HTTPException(status_code=404, detail="No album art") from error
+        # Raster images only: an SVG served from this origin could carry script.
+        if kind not in ART_TYPES or len(body) > ART_MAX_BYTES:
+            raise HTTPException(status_code=404, detail="No album art")
+        cached = (body, kind)
+        with _covers_lock:
+            if len(_art) > 500:
+                _art.clear()
+            _art[url] = cached
+    return Response(cached[0], media_type=cached[1], headers={"Cache-Control": "private, max-age=3600"})

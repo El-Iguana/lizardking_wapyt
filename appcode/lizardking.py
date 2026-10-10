@@ -208,6 +208,7 @@ class LizardKing(MainWindow):
             '<div class="lk-empty" id="lk-empty"><img src="/lk/static/lizardking-poster.webp" alt="">'
             '<b>LizardKing</b><span>Open a file with <kbd>Ctrl</kbd>+<kbd>O</kbd>, '
             'a folder with <kbd>Ctrl</kbd>+<kbd>F</kbd>, a media server with <kbd>Ctrl</kbd>+<kbd>D</kbd></span><span class="lk-muted">Press <kbd>?</kbd> for shortcuts</span></div>'
+            '<div class="lk-art lk-hidden" id="lk-art"><img alt=""><b></b><span></span></div>'
             '<div class="lk-osd" id="lk-osd" role="status" aria-live="polite"></div>'
             '<div class="lk-resume" id="lk-resume"><span></span>'
             '<button type="button" data-act="restart">Start over</button>'
@@ -520,6 +521,8 @@ class LizardKing(MainWindow):
             "text_tracks": [MediaTextTrack(t["src"], label=t.get("label"), language=t.get("language"),
                                            default=bool(t.get("default"))) for t in r["text_tracks"]],
         }
+        if current and current["uid"] == uid:
+            self._show_art(r)
         js.document.body.dataset.mode = r["mode"]
         js.document.body.dataset.resolved = entry["path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
         if not payload.get("refresh"):
@@ -586,6 +589,19 @@ class LizardKing(MainWindow):
     def _set_title(self, title):
         js.document.title = f"{title} — LizardKing" if title else "LizardKing"
         js.document.getElementById("lk-empty").classList.toggle("lk-hidden", bool(self.entries))
+        if not self.entries:
+            self._show_art(None)
+
+    def _show_art(self, prepared):
+        """Music fills the player with its cover (the file's, or the media server's)."""
+        box = js.document.getElementById("lk-art")
+        if not prepared or prepared.get("kind") != "audio":
+            box.classList.add("lk-hidden")
+            return
+        box.querySelector("img").src = prepared.get("poster") or "/lk/static/lizardking-poster.webp"
+        box.querySelector("b").textContent = prepared.get("title") or ""
+        box.querySelector("span").textContent = prepared.get("subtitle") or ""
+        box.classList.remove("lk-hidden")
 
     def _stop(self):
         self._save_position(force=True)
@@ -825,13 +841,18 @@ class LizardKing(MainWindow):
             # Only the latest request counts: the first load (the last folder
             # used) can come back after a path typed in the meantime.
             state["serial"] = serial = state.get("serial", 0) + 1
+            shown = path_input.value
             r = await PlayerService().browse_async(path, bool(show_all.checked))
             if serial != state["serial"]:
                 return
             # A media server's folders read as "Server › Video › Recently
             # Added"; the dlna:// path behind them stays in state.
             state["path"], state["parent"] = r["path"], r["parent"]
-            state["label"] = path_input.value = r.get("label") or r["path"]
+            state["label"] = r.get("label") or r["path"]
+            # Unless the box was typed into while this folder loaded: then
+            # leave it, so Enter opens what was typed rather than this folder.
+            if path_input.value == shown:
+                path_input.value = state["label"]
             up.disabled = not r["parent"]
             error.textContent = r.get("error") or ""
             entries = [e for e in r["entries"] if e["is_dir"]] if folder else r["entries"]

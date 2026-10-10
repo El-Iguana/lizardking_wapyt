@@ -51,7 +51,7 @@ def test_xml_with_a_dtd_is_refused():
 
 def test_didl_gives_containers_and_playable_items_in_order():
     containers, items = dlna.parse_didl(DIDL)
-    assert containers == [{"id": "1$7", "parent": "1", "title": "Album", "count": 59}]
+    assert containers == [{"id": "1$7", "parent": "1", "title": "Album", "count": 59, "art": ""}]
     assert [i["title"] for i in items] == ["Ants Marching", "A Film", "A Photo"]   # no <res>: skipped
     song, film, photo = items
     assert (song["kind"], song["url"], song["size"], song["artist"], song["album"]) == (
@@ -136,7 +136,7 @@ def test_expand_walks_containers_once_per_item(nas):
     entries = dlna.expand(dlna.make_path("uuid:abc-123", "1"))
     assert [e["title"] for e in entries] == ["Song", "Other"]       # Song is in both: queued once
     assert dlna.expand(dlna.make_path("uuid:abc-123", "1"), recursive=False) == [entries[0]]
-    assert dlna.known(entries[0]["path"]) == {"title": "Song", "subtitle": "Band — Record", "kind": "audio"}
+    assert dlna.known(entries[0]["path"]) == {"title": "Song", "subtitle": "Band — Record", "kind": "audio", "art": ""}
 
 
 def test_only_urls_on_a_known_server_are_accepted(nas):
@@ -152,3 +152,85 @@ def test_a_url_has_an_extension_and_reconnects():
     assert media.extension("/films/a.mp4") == ".mp4"
     assert "-reconnect" in media.input_args("http://10.0.0.2/a.mkv")
     assert media.input_args("/films/a.mkv") == []
+
+
+ALBUM = """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:dlna="urn:schemas-dlna-org:metadata-1-0/">
+<container id="1$7$1E" parentID="1$7" childCount="2"><dc:title>Songs About Jane</dc:title>
+ <upnp:class>object.container.album.musicAlbum</upnp:class>
+ <upnp:albumArtURI dlna:profileID="JPEG_TN">http://10.0.0.2:8200/AlbumArt/1-1.jpg</upnp:albumArtURI></container>
+</DIDL-Lite>"""
+
+TRACKS = """<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
+<item id="t1" parentID="1$7$1E"><dc:title>Harder to Breathe</dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class>
+ <upnp:albumArtURI>http://10.0.0.2:8200/AlbumArt/2-7.jpg</upnp:albumArtURI>
+ <res protocolInfo="http-get:*:audio/mpeg:*">http://10.0.0.2:8200/MediaItems/7.mp3</res></item>
+<item id="t2" parentID="1$7$1E"><dc:title>This Love</dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class>
+ <res protocolInfo="http-get:*:audio/mpeg:*">http://10.0.0.2:8200/MediaItems/8.mp3</res></item>
+</DIDL-Lite>"""
+
+
+def test_album_art_is_read_from_containers_and_items():
+    containers, _ = dlna.parse_didl(ALBUM)
+    assert containers[0]["art"] == "http://10.0.0.2:8200/AlbumArt/1-1.jpg"
+    _, items = dlna.parse_didl(TRACKS)
+    assert [i["art"] for i in items] == ["http://10.0.0.2:8200/AlbumArt/2-7.jpg", ""]
+    _, items = dlna.parse_didl(DIDL)
+    assert items[0]["art"] == ""
+
+
+def test_a_track_without_art_shows_its_albums(monkeypatch):
+    server = {"udn": "uuid:abc-123", "name": "NAS", "control": "http://10.0.0.2:8200/ctl/ContentDir",
+              "origin": "http://10.0.0.2:8200"}
+    answers = {"1$7": ALBUM, "1$7$1E": TRACKS}
+    monkeypatch.setattr(dlna, "_containers", {})
+    monkeypatch.setattr(dlna, "_titles", {})
+    monkeypatch.setattr(dlna, "_soap_browse", lambda _s, oid, _flag, _start, _count: (answers[oid].encode(), 1 if oid == "1$7" else 2))
+    dlna.children(server, "1$7")                    # the album list: remembers each album's art
+    _, items = dlna.children(server, "1$7$1E")
+    assert [i["art"] for i in items] == ["http://10.0.0.2:8200/AlbumArt/2-7.jpg",   # its own
+                                         "http://10.0.0.2:8200/AlbumArt/1-1.jpg"]   # the album's
+    assert dlna.known("http://10.0.0.2:8200/MediaItems/8.mp3")["art"] == "http://10.0.0.2:8200/AlbumArt/1-1.jpg"
+
+
+class _Upstream:
+    def __init__(self, body, kind):
+        self.body, self.headers = body, type("H", (), {"get_content_type": lambda _self: kind})()
+
+    def read(self, _n):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+@pytest.mark.parametrize("kind, ok", [("image/jpeg", True), ("image/svg+xml", False), ("text/html", False)])
+def test_album_art_is_served_only_as_a_raster_image(monkeypatch, kind, ok):
+    from fastapi import HTTPException
+
+    from services import routes, tokens
+    url = f"http://10.0.0.2:8200/AlbumArt/{kind.replace('/', '-')}.jpg"
+    monkeypatch.setattr(dlna, "check_url", lambda _url: None)
+    monkeypatch.setattr(routes.urllib.request, "urlopen", lambda _url, timeout=0: _Upstream(b"\xff\xd8art", kind))
+    token = tokens.token_for(url)
+    if ok:
+        response = routes.art(token)
+        assert (response.body, response.media_type) == (b"\xff\xd8art", "image/jpeg")
+    else:
+        with pytest.raises(HTTPException):
+            routes.art(token)
+
+
+def test_album_art_from_anywhere_else_is_refused(monkeypatch):
+    from fastapi import HTTPException
+
+    from services import routes, tokens
+    monkeypatch.setattr(dlna, "_servers", {})
+    monkeypatch.setattr(dlna, "discover", lambda force=False: [])
+    with pytest.raises(HTTPException) as refused:
+        routes.art(tokens.token_for("http://203.0.113.9/AlbumArt/1.jpg"))
+    assert refused.value.status_code == 403
