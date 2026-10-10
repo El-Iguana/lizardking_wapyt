@@ -43,7 +43,8 @@ SHORTCUTS = [
     ("F", "Full screen (or double-click)"), ("A", "Cycle fit: best fit, crop, stretch"), ("Z", "Cycle zoom"),
     ("B", "Next audio track"), ("V", "Next subtitle track"), ("C", "Subtitles on / off"),
     ("Shift+L", "A→B loop: set A, set B, clear"), ("Shift+S", "Snapshot (PNG download)"),
-    ("Ctrl+O", "Open file"), ("Ctrl+F", "Open folder"), ("Ctrl+N", "Open network stream"),
+    ("Ctrl+O", "Open file"), ("Ctrl+F", "Open folder"), ("Ctrl+D", "Open media server (DLNA)"),
+    ("Ctrl+N", "Open network stream"),
     ("Ctrl+T", "Jump to time"), ("Ctrl+I", "Media information"), ("Ctrl+L", "Show / hide the playlist"),
     ("Ctrl+Y", "Save playlist"), ("?", "This list"),
 ]
@@ -206,7 +207,7 @@ class LizardKing(MainWindow):
             '<div id="lk-media" style="height:100%"></div>'
             '<div class="lk-empty" id="lk-empty"><img src="/lk/static/lizardking-poster.webp" alt="">'
             '<b>LizardKing</b><span>Open a file with <kbd>Ctrl</kbd>+<kbd>O</kbd>, '
-            'a folder with <kbd>Ctrl</kbd>+<kbd>F</kbd></span><span class="lk-muted">Press <kbd>?</kbd> for shortcuts</span></div>'
+            'a folder with <kbd>Ctrl</kbd>+<kbd>F</kbd>, a media server with <kbd>Ctrl</kbd>+<kbd>D</kbd></span><span class="lk-muted">Press <kbd>?</kbd> for shortcuts</span></div>'
             '<div class="lk-osd" id="lk-osd" role="status" aria-live="polite"></div>'
             '<div class="lk-resume" id="lk-resume"><span></span>'
             '<button type="button" data-act="restart">Start over</button>'
@@ -286,6 +287,7 @@ class LizardKing(MainWindow):
             MenuItem("media", "Media", items=[
                 MenuItem("open_file", "Open File…", "mdi-file-video-outline", shortcut="Ctrl+O"),
                 MenuItem("open_folder", "Open Folder…", "mdi-folder-open-outline", shortcut="Ctrl+F"),
+                MenuItem("open_dlna", "Open Media Server (DLNA)…", "mdi-server-network", shortcut="Ctrl+D"),
                 MenuItem("open_url", "Open Network Stream…", "mdi-web", shortcut="Ctrl+N"),
                 MenuItem("recent", "Open Recent", "mdi-history", items=recent),
                 MenuItem(separator=True),
@@ -369,6 +371,7 @@ class LizardKing(MainWindow):
         simple = {
             "open_file": lambda: spawn(self._open_dialog()),
             "open_folder": lambda: spawn(self._open_dialog(folder=True)),
+            "open_dlna": lambda: spawn(self._open_dialog(start="dlna://")),
             "open_url": self._url_dialog, "save_playlist": self._save_playlist_dialog,
             "toggle": self.player.toggle, "stop": self._stop, "previous": self.player.previous, "next": self.player.next,
             "back10": lambda: self.player.skip(-10), "fwd10": lambda: self.player.skip(10),
@@ -756,7 +759,7 @@ class LizardKing(MainWindow):
         if event.altKey:
             return
         if ctrl:
-            action = {"o": "open_file", "f": "open_folder", "n": "open_url", "t": "jump", "i": "info",
+            action = {"o": "open_file", "f": "open_folder", "d": "open_dlna", "n": "open_url", "t": "jump", "i": "info",
                       "l": "playlist", "y": "save_playlist"}.get(key.lower())
         elif shift and key in ("S", "L"):
             action = "snapshot" if key == "S" else "ab"
@@ -781,7 +784,7 @@ class LizardKing(MainWindow):
 
     # ── Dialogs ───────────────────────────────────────────────────────────
 
-    async def _open_dialog(self, folder=False):
+    async def _open_dialog(self, folder=False, start=""):
         d = Dialog("Open Folder" if folder else "Open Media", width=780, height=580)
         state = {"path": "", "parent": None}
         places = el("div", "lk-places")
@@ -789,7 +792,7 @@ class LizardKing(MainWindow):
         up = d.button(path_row, "↑ Up", lambda: spawn(load(state["parent"])))
         path_input = el("input", type="text", spellcheck="false", aria_label="Folder", id="lk-path")
         path_row.appendChild(path_input)
-        d.button(path_row, "Go", lambda: spawn(load(path_input.value)))
+        d.button(path_row, "Go", lambda: spawn(load(typed())))
         error = el("div", "lk-error")
         browse = el("div", "lk-browse")
         options = el("div", "lk-row lk-muted")
@@ -825,13 +828,20 @@ class LizardKing(MainWindow):
             r = await PlayerService().browse_async(path, bool(show_all.checked))
             if serial != state["serial"]:
                 return
+            # A media server's folders read as "Server › Video › Recently
+            # Added"; the dlna:// path behind them stays in state.
             state["path"], state["parent"] = r["path"], r["parent"]
-            path_input.value = r["path"]
+            state["label"] = path_input.value = r.get("label") or r["path"]
             up.disabled = not r["parent"]
             error.textContent = r.get("error") or ""
             entries = [e for e in r["entries"] if e["is_dir"]] if folder else r["entries"]
             listbox.set_items([{"id": e["path"], "title": e["name"], "icon": ICONS.get(e["kind"], "mdi-file-outline"),
                                 "meta": "" if e["is_dir"] else fmt_size(e["size"]), "is_dir": e["is_dir"]} for e in entries])
+
+        def typed():
+            """The path in the box; the folder shown, if it still holds that folder's label."""
+            value = path_input.value.strip()
+            return state["path"] if value == state.get("label") else value
 
         def activate(e):
             item = e.get("item") or {}
@@ -842,13 +852,14 @@ class LizardKing(MainWindow):
                 spawn(self._open_paths([e["id"]], True, True))
 
         listbox.on_activate(activate)
-        d.on(path_input, "keydown", lambda e: e.key == "Enter" and spawn(load(path_input.value)))
+        d.on(path_input, "keydown", lambda e: e.key == "Enter" and spawn(load(typed())))
         d.on(show_all, "change", lambda _e: spawn(load(state["path"])))
         d.modal.on_close(lambda _e: listbox.destroy())
         d.show()
-        # The last folder first, so its serial is the lowest: a path typed
-        # while the places are still loading always wins.
-        spawn(load(""))
+        # The start folder (the last one used, or the media servers) first,
+        # so its serial is the lowest: a path typed while the places are
+        # still loading always wins.
+        spawn(load(start))
         for place in await PlayerService().places_async():
             d.button(places, place["label"], lambda p=place["path"]: spawn(load(p))).title = place["path"]
 

@@ -29,6 +29,7 @@ from typing import Optional
 from urllib.parse import quote, unquote, urljoin, urlsplit
 
 SCHEME = "dlna://"
+ROOT_LABEL = "Network (DLNA)"
 SSDP_ADDR = ("239.255.255.250", 1900)
 MEDIA_SERVER = "urn:schemas-upnp-org:device:MediaServer:1"
 CONTENT_DIRECTORY = "urn:schemas-upnp-org:service:ContentDirectory:1"
@@ -38,10 +39,12 @@ HTTP_TIMEOUT = 10
 PAGE = 500                    # Browse results per request
 MAX_CHILDREN = 5000           # one container, as browse.MAX_EXPAND for folders
 MAX_EXPAND = 5000
+MAX_DEPTH = 32                # containers walked up for a readable label
 
 _servers: dict[str, dict] = {}        # udn -> {udn, name, control, origin}
 _discovered_at = 0.0
 _titles: dict[str, dict] = {}         # media url -> {title, subtitle, kind}
+_containers: dict[tuple[str, str], dict] = {}   # (udn, container id) -> {title, parent}
 _lock = threading.Lock()
 
 
@@ -286,6 +289,7 @@ def children(server: dict, object_id: str) -> tuple[list[dict], list[dict]]:
         if not got or start >= total:
             break
     _remember(items)
+    _remember_containers(server["udn"], containers)
     return containers, items
 
 
@@ -293,7 +297,32 @@ def _metadata(server: dict, object_id: str) -> dict:
     """The container itself: its title and parent."""
     result, _total = _soap_browse(server, object_id, "BrowseMetadata", 0, 1)
     containers, _items = parse_didl(result) if result.strip() else ([], [])
+    _remember_containers(server["udn"], containers)
     return containers[0] if containers else {"id": object_id, "parent": "-1", "title": ""}
+
+
+def _remember_containers(udn: str, containers: list[dict]) -> None:
+    with _lock:
+        if len(_containers) > 20000:
+            _containers.clear()
+        for c in containers:
+            _containers[(udn, c["id"])] = {"title": c["title"], "parent": c["parent"]}
+
+
+def label(server: dict, object_id: str) -> str:
+    """``Server › Folder › Folder`` for a container, from titles seen while browsing."""
+    names: list[str] = []
+    oid = object_id
+    for _ in range(MAX_DEPTH):
+        if oid in ("", "0", "-1"):
+            break
+        with _lock:
+            here = _containers.get((server["udn"], oid))
+        if here is None:
+            here = _metadata(server, oid)
+        names.append(here.get("title") or oid)
+        oid = here.get("parent") or ""
+    return " › ".join([server["name"], *reversed(names)])
 
 
 def _remember(items: list[dict]) -> None:
@@ -333,14 +362,16 @@ def listing(path: str, show_all: bool = False) -> dict:
         try:
             servers = discover(force=True)
         except DlnaError as error:
-            return {"path": SCHEME, "parent": None, "entries": [], "error": str(error)}
-        return {"path": SCHEME, "parent": None, "error": None if servers else "No media servers answered on your network.",
+            return {"path": SCHEME, "label": ROOT_LABEL, "parent": None, "entries": [], "error": str(error)}
+        return {"path": SCHEME, "label": ROOT_LABEL, "parent": None,
+                "error": None if servers else "No media servers answered on your network.",
                 "entries": [{"name": s["name"], "path": make_path(s["udn"], "0"), "kind": "server", "size": None,
                              "is_dir": True} for s in servers]}
     try:
         server = _server(udn)
         here = _metadata(server, object_id) if object_id != "0" else {"parent": "-1"}
         containers, items = children(server, object_id)
+        readable = label(server, object_id)
     except DlnaError as error:
         return {"path": path, "parent": SCHEME, "entries": [], "error": str(error)}
     parent = here.get("parent")
@@ -348,7 +379,7 @@ def listing(path: str, show_all: bool = False) -> dict:
                for c in containers]
     entries += [{"name": i["title"], "path": i["url"], "kind": i["kind"], "size": i["size"], "is_dir": False}
                 for i in items if show_all or i["kind"] in ("video", "audio")]
-    return {"path": make_path(udn, object_id), "entries": entries, "error": None,
+    return {"path": make_path(udn, object_id), "label": readable, "entries": entries, "error": None,
             "parent": make_path(udn, parent) if parent and parent != "-1" else SCHEME}
 
 

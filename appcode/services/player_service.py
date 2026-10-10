@@ -73,7 +73,7 @@ class PlayerService:
     # Disk ----------------------------------------------------------------
 
     def places(self) -> list:
-        return browse.places() + [{"label": "Network (DLNA)", "path": dlna.SCHEME, "icon": "mdi-lan"}]
+        return browse.places() + [{"label": dlna.ROOT_LABEL, "path": dlna.SCHEME, "icon": "mdi-lan"}]
 
     def browse(self, path: str = "", show_all: bool = False) -> dict:
         if dlna.is_dlna_path(path):

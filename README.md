@@ -19,8 +19,10 @@ can also run in an ordinary browser tab. Named for Jim Morrison, and for El Igua
 
 - **Open** files, folders (with subfolders, in natural order) and M3U playlists
   from a dialog that browses your disk, or an http(s) / HLS address
-- **DLNA media servers**: browse a NAS (MiniDLNA, Plex, Jellyfin, …) under
-  *Network (DLNA)* and play from it like a local file, transcoding included
+- **DLNA media servers**: *Media → Open Media Server* (Ctrl+D) finds a NAS
+  (MiniDLNA, Plex, Jellyfin, …) on your network; browse it in its own folders
+  (*NAS › Video › Recently Added*) and play from it like a local file,
+  transcoding and seeking included
 - **Plays directly** when it can, **transcodes** when it must (NVENC if you have
   it, else libx264), and tells you which and why in *Media Information*
 - **Subtitles**: `.srt` / `.ass` / `.vtt` beside the file, and text subtitles

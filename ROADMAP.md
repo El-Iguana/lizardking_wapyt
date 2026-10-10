@@ -35,8 +35,6 @@ v0.1 is described in [docs/spec.md](docs/spec.md). Roughly in order of value:
 
 ## Media servers (DLNA)
 
-- **Readable paths** in the Open dialog while browsing a server (the path box
-  shows the encoded `dlna://<udn>/<id>` today): server and folder titles.
 - **Album art and posters from the server** (`upnp:albumArtURI`) when the file
   has none of its own.
 - More servers checked live: Plex, Jellyfin, Serviio (MiniDLNA 1.3.3 is).

@@ -86,6 +86,7 @@ def nas(monkeypatch):
                       "size": 20, "artist": "", "album": "", "mime": "video/x-matroska", "duration": 90.0}]),
     }
     parents = {"1": "0", "1$7": "1"}
+    titles = {"1": "Music", "1$7": "Album"}
 
     def children(_server, oid):
         containers, items = tree[oid]
@@ -95,8 +96,10 @@ def nas(monkeypatch):
     monkeypatch.setattr(dlna, "discover", lambda force=False: [server])
     monkeypatch.setattr(dlna, "_servers", {server["udn"]: server})
     monkeypatch.setattr(dlna, "_titles", {})
+    monkeypatch.setattr(dlna, "_containers", {})
     monkeypatch.setattr(dlna, "children", children)
-    monkeypatch.setattr(dlna, "_metadata", lambda _s, oid: {"id": oid, "parent": parents.get(oid, "-1"), "title": ""})
+    monkeypatch.setattr(dlna, "_metadata",
+                        lambda _s, oid: {"id": oid, "parent": parents.get(oid, "-1"), "title": titles.get(oid, "")})
     return server
 
 
@@ -114,6 +117,19 @@ def test_a_container_lists_folders_then_media_and_knows_its_parent(nas):
         ("Album", True, "folder"), ("Song", False, "audio")]       # the photo only with show_all
     assert len(dlna.listing(dlna.make_path("uuid:abc-123", "1"), show_all=True)["entries"]) == 3
     assert dlna.listing(dlna.make_path("uuid:abc-123", "0"))["parent"] == "dlna://"
+
+
+def test_the_path_box_reads_as_server_and_folder_names(nas):
+    assert dlna.listing("dlna://")["label"] == "Network (DLNA)"
+    assert dlna.listing(dlna.make_path("uuid:abc-123", "0"))["label"] == "NAS"
+    assert dlna.listing(dlna.make_path("uuid:abc-123", "1$7"))["label"] == "NAS › Music › Album"
+
+
+def test_labels_use_titles_already_seen_without_asking_the_server(nas, monkeypatch):
+    dlna._remember_containers("uuid:abc-123", [{"id": "1", "parent": "0", "title": "Music"},
+                                               {"id": "1$7", "parent": "1", "title": "Album"}])
+    monkeypatch.setattr(dlna, "_metadata", lambda *_: pytest.fail("asked the server for a title it had"))
+    assert dlna.label(nas, "1$7") == "NAS › Music › Album"
 
 
 def test_expand_walks_containers_once_per_item(nas):
