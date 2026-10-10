@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+
+# Rebuilt by ../wa_pytincture_widgetset/scripts/dev_wheel.sh appcode
+appcode/wapyt-*.whl
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Logs and local test output
+*.log
+tests/e2e/*.png

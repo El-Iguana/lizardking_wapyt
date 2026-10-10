@@ -1,0 +1,54 @@
+# Unit tests (with a real ffmpeg transcode), then the end-to-end check in
+# Chromium: the server, the page under Pyodide, ffmpeg, all together.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: lizardking_wapyt
+
+      # uv.lock resolves wapyt from ../wa_pytincture_widgetset, at the commit
+      # pyproject.toml pins ([tool.lizardking] wapyt-ref).
+      - name: Read the pinned wapyt commit
+        id: wapyt
+        run: echo "ref=$(sed -n 's/^wapyt-ref = "\(.*\)"/\1/p' lizardking_wapyt/pyproject.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          repository: WAwesome-AI/wa_pytincture_widgetset
+          ref: ${{ steps.wapyt.outputs.ref }}
+          path: wa_pytincture_widgetset
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.13"
+
+      - name: ffmpeg
+        run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+
+      - name: Unit tests
+        working-directory: lizardking_wapyt
+        run: |
+          uv sync --frozen --group dev
+          uv run --frozen pytest -q
+
+      - name: Dev wheel for the browser
+        working-directory: lizardking_wapyt
+        # The runner's python3, which has pip (a uv venv does not).
+        run: ../wa_pytincture_widgetset/scripts/dev_wheel.sh appcode
+
+      - name: End to end in Chromium
+        working-directory: lizardking_wapyt
+        run: |
+          uv run --frozen --with playwright playwright install --with-deps chromium
+          uv run --frozen --with playwright python tests/e2e/ui_check.py

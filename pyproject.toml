@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lizardking"
+version = "0.1.0"
+description = "LizardKing: a local media player in the browser, in the spirit of VLC (pyTincture + wapyt, ffmpeg for the rest)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.13,<3.15"
+authors = [{ name = "OldManGan", email = "eliguana@protonmail.com" }]
+dependencies = [
+    "uvicorn[standard]>=0.30.0",
+    "pytincture",
+    "wapyt",
+]
+
+[project.urls]
+homepage = "https://github.com/El-Iguana/lizardking_wapyt"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.uv.sources]
+# Pinned to the release tag this app was verified against (as IguanaXterm and
+# Monguana are). To work on pytincture itself: uv add --editable ../pytincture
+pytincture = { git = "https://github.com/pytincture/pytincture.git", tag = "v1.0.0rc13" }
+# Server-side only, for widgetset discovery: pytincture reads __widgetset__ from
+# the installed distribution. The BROWSER installs the dev wheel in appcode/
+# (scripts in ../wa_pytincture_widgetset/scripts/dev_wheel.sh). Not editable: an
+# editable install hides the widgetset from discovery.
+wapyt = { path = "../wa_pytincture_widgetset", editable = false }
+
+[tool.setuptools]
+packages = []
+
+[tool.lizardking]
+# The wapyt commit CI checks out beside this repo (uv.lock resolves wapyt from
+# ../wa_pytincture_widgetset). LizardKing needs MediaPlayer.refresh(), which
+# arrived in WAwesome-AI/wa_pytincture_widgetset#72; move this to its merge
+# commit once that PR is merged.
+wapyt-ref = "4f7382f27c3b5428bf1a37bab542d02aaadc0e5f"
