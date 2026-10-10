@@ -17,6 +17,8 @@ interface is Python, running in Pyodide) and [wapyt](https://github.com/WAwesome
 Python server on this computer only and stops it when you close the window. It
 can also run in an ordinary browser tab. Named for Jim Morrison, and for El Iguana.
 
+![LizardKing playing an album with no cover art: the LizardKing poster fills the player, with the track title and artist beneath it and the album's five tracks in the playlist](docs/images/lizardking-music.png)
+
 - **Open** files, folders (with subfolders, in natural order) and M3U playlists
   from a dialog that browses your disk, or an http(s) / HLS address
 - **DLNA media servers**: *Media → Open Media Server* (Ctrl+D) finds a NAS
