@@ -26,12 +26,19 @@ def places() -> list[dict]:
         if path.is_dir():
             found.append({"label": label, "path": str(path), "icon": "mdi-home" if not sub else "mdi-folder"})
     user = getpass.getuser()
+    # The same drive is often reachable twice: on Fedora Atomic /mnt links to
+    # /var/mnt and /media to /run/media. One button per real directory.
+    seen = {os.path.realpath(p["path"]) for p in found}
     for parent in (Path("/run/media") / user, Path("/media") / user, Path("/var/mnt"), Path("/mnt")):
         try:
             mounts = sorted(p for p in parent.iterdir() if p.is_dir() and not p.name.startswith("."))
         except OSError:
             continue
         for mount in mounts:
+            real = os.path.realpath(mount)
+            if real in seen:
+                continue
+            seen.add(real)
             found.append({"label": mount.name, "path": str(mount), "icon": "mdi-harddisk"})
     return found
 

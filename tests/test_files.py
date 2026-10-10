@@ -91,3 +91,20 @@ def test_settings_ignore_unknown_keys(tmp_path):
     assert store.settings()["theme"] == "dark"
     result = store.update_settings({"theme": "light", "volume": 0.4, "evil": True})
     assert result["theme"] == "light" and result["volume"] == 0.4 and "evil" not in result
+
+
+def test_places_list_each_drive_once(tmp_path, monkeypatch):
+    real = tmp_path / "var" / "mnt"
+    (real / "nas").mkdir(parents=True)
+    (tmp_path / "mnt").symlink_to(real)
+    original = browse.Path
+
+    def remap(*parts):
+        text = str(original(*parts))
+        if text.startswith(("/var/mnt", "/mnt", "/run/media", "/media")):
+            return original(str(tmp_path) + text)
+        return original(*parts)
+    monkeypatch.setattr(browse, "Path", remap)
+    monkeypatch.setattr(browse.Path, "home", staticmethod(lambda: tmp_path / "home"), raising=False)
+    labels = [p["label"] for p in browse.places()]
+    assert labels.count("nas") == 1, labels
