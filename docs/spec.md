@@ -123,7 +123,7 @@ WebVTT is the only format `<track>` takes, so everything goes through
 
 ## 6. The page (`appcode/lizardking.py`)
 
-* **Menu bar**: Media (Open File, Open Folder, Open Network Stream, Open
+* **Menu bar**: Media (Open File, Open Folder, Open Media Server (DLNA), Open Network Stream, Open
   Recent, Save Playlist), Playback (transport, jumps, Jump to Time, Next Frame,
   Speed, A→B Loop, Repeat, Shuffle), Audio (track, volume), Video (Full Screen,
   Fit, Zoom, Snapshot), Subtitles, View (Playlist panel, Dark/Light, Resume),

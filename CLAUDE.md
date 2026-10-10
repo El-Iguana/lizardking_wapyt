@@ -123,7 +123,11 @@ pinned to `127.0.0.1`, so adding localhost to `allowed_hosts` is not enough;
 `dlna.py` is a plain module (server table and titles must outlive a BFF call).
 The dialog sees `dlna://<udn>/<object id>` (both URL-quoted: MiniDLNA ids
 contain `$`); `PlayerService.browse`/`expand` dispatch on that scheme and never
-store it as `last_dir`. A server's **item** is its plain http URL, and that is
+store it as `last_dir`. A DLNA listing also carries `label` (`Server › Video ›
+Recently Added`, from container titles cached in `dlna._containers`), which the
+path box shows; Go/Enter on an unchanged label reloads `state["path"]`, anything
+typed is loaded as typed. *Media → Open Media Server* (Ctrl+D) is
+`_open_dialog(start="dlna://")`. A server's **item** is its plain http URL, and that is
 the queue entry's `path`: `prepare` probes and transcodes it like a file
 (`media.is_remote`: no `os.stat` cache key, `-reconnect` input options), and
 direct play goes through `/lk/file/<token>`, which proxies the server with Range
