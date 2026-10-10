@@ -14,6 +14,9 @@ v0.1 is described in [docs/spec.md](docs/spec.md). Roughly in order of value:
 - **VA-API encoding** (Intel/AMD) alongside NVENC.
 - **Network streams through ffmpeg**: RTSP, RTMP, and http media the browser
   cannot play (live streams have no duration, so an event playlist).
+- **Force a transcode** from the menu, for a file the browser accepts but
+  plays wrongly without reporting an error (as Chrome does with AC-3 in MKV:
+  silence). The page already falls back by itself when an error *is* reported.
 - **Chapters** from the container, in the seek bar and a menu.
 - **Gapless audio** between album tracks.
 
