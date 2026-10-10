@@ -24,7 +24,8 @@ can also run in an ordinary browser tab. Named for Jim Morrison, and for El Igua
 - **DLNA media servers**: *Media → Open Media Server* (Ctrl+D) finds a NAS
   (MiniDLNA, Plex, Jellyfin, …) on your network; browse it in its own folders
   (*NAS › Video › Recently Added*) and play from it like a local file,
-  transcoding and seeking included, with the server's album art
+  transcoding and seeking included, with thumbnails of its videos and its
+  album art
 - **Plays directly** when it can, **transcodes** when it must (NVENC if you have
   it, else libx264), and tells you which and why in *Media Information*
 - **Subtitles**: `.srt` / `.ass` / `.vtt` beside the file, and text subtitles

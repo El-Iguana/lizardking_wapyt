@@ -67,6 +67,13 @@
 .lk-places button { font-size: 13px; padding: 3px 10px; }
 .lk-browse { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--wapyt-border, #8884); border-radius: 4px; }
 .lk-error { color: #e57373; }
+/* A media server's videos: a frame beside the name (lazy; the server makes it). */
+.lk-row-thumb { display: flex; gap: 12px; align-items: center; }
+.lk-thumb {
+  flex: none; width: 96px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 4px;
+  background: #0006;
+}
+.lk-row-text { min-width: 0; }
 .lk-muted { opacity: .7; }
 .lk-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
 .lk-actions .lk-grow { flex: 1; }

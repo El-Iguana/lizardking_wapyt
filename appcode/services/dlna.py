@@ -344,7 +344,8 @@ def _remember(items: list[dict]) -> None:
         for item in items:
             subtitle = " — ".join(x for x in (item.get("artist"), item.get("album")) if x)
             _titles[item["url"]] = {"title": item["title"], "subtitle": subtitle, "kind": item["kind"],
-                                    "art": item.get("art", "")}
+                                    "art": item.get("art", ""), "size": item.get("size"),
+                                    "duration": item.get("duration")}
 
 
 # What the BFF uses ---------------------------------------------------------------

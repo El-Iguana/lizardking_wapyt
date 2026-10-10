@@ -91,6 +91,24 @@ def parse_time(text):
         return None
 
 
+def browse_row(entry):
+    """
+    One Open-dialog row: the Listbox's own icon / title / meta layout, or, for a
+    video with a thumbnail (a media server's), the frame beside the text. Built
+    here with every value escaped; the Listbox inserts it as markup.
+    """
+    title = html.escape(entry["name"])
+    meta = "" if entry["is_dir"] else html.escape(fmt_size(entry["size"]))
+    icon = ICONS.get(entry["kind"], "mdi-file-outline")
+    meta_line = f'<div class="wapyt-listbox-meta">{meta}</div>' if meta else ""
+    if entry.get("thumb"):
+        return (f'<div class="lk-row-thumb"><img class="lk-thumb" loading="lazy" decoding="async" alt="" '
+                f'src="{html.escape(entry["thumb"])}"><div class="lk-row-text"><div class="wapyt-listbox-head">'
+                f'<span class="wapyt-listbox-title">{title}</span></div>{meta_line}</div></div>')
+    return (f'<div class="wapyt-listbox-head"><i class="wapyt-listbox-icon mdi {icon}" aria-hidden="true"></i>'
+            f'<span class="wapyt-listbox-title">{title}</span></div>{meta_line}')
+
+
 def fmt_size(size):
     if size is None:
         return ""
@@ -824,7 +842,8 @@ class LizardKing(MainWindow):
         for node in (places, path_row, error, browse, options, actions):
             d.body.appendChild(node)
         listbox = Listbox(ListboxConfig(selection="multi", filterable=True, filter_placeholder="Filter",
-                                        empty_text="No media in this folder", label="Files"), container=browse)
+                                        empty_text="No media in this folder", label="Files",
+                                        template="{rowHtml}"), container=browse)
 
         def go(replace):
             paths = listbox.get_selected_ids() or [state["path"]]
@@ -856,8 +875,8 @@ class LizardKing(MainWindow):
             up.disabled = not r["parent"]
             error.textContent = r.get("error") or ""
             entries = [e for e in r["entries"] if e["is_dir"]] if folder else r["entries"]
-            listbox.set_items([{"id": e["path"], "title": e["name"], "icon": ICONS.get(e["kind"], "mdi-file-outline"),
-                                "meta": "" if e["is_dir"] else fmt_size(e["size"]), "is_dir": e["is_dir"]} for e in entries])
+            listbox.set_items([{"id": e["path"], "title": e["name"], "is_dir": e["is_dir"], "rowHtml": browse_row(e)}
+                               for e in entries])
 
         def typed():
             """The path in the box; the folder shown, if it still holds that folder's label."""

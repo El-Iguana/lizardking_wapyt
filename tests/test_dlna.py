@@ -136,7 +136,8 @@ def test_expand_walks_containers_once_per_item(nas):
     entries = dlna.expand(dlna.make_path("uuid:abc-123", "1"))
     assert [e["title"] for e in entries] == ["Song", "Other"]       # Song is in both: queued once
     assert dlna.expand(dlna.make_path("uuid:abc-123", "1"), recursive=False) == [entries[0]]
-    assert dlna.known(entries[0]["path"]) == {"title": "Song", "subtitle": "Band — Record", "kind": "audio", "art": ""}
+    assert dlna.known(entries[0]["path"]) == {"title": "Song", "subtitle": "Band — Record", "kind": "audio", "art": "",
+                                              "size": 10, "duration": 60.0}
 
 
 def test_only_urls_on_a_known_server_are_accepted(nas):

@@ -31,12 +31,13 @@ appcode/                   # pytincture modules_path
   static/                  #   lk.js (caps, snapshot, fit/zoom), lizardking.css, logo (also the favicon) + poster — served at /lk/static
   services/
     player_service.py      #   BFF: browse, expand, prepare, info, positions, recent, settings, playlists
-    routes.py              #   plain routes: /lk/file (+ DLNA proxy), /lk/hls, /lk/vtt, /lk/cover, /lk/art, /lk/health
+    routes.py              #   plain routes: /lk/file (+ DLNA proxy), /lk/hls, /lk/vtt, /lk/cover, /lk/art, /lk/thumb, /lk/health
     media.py               #   ffprobe (cached) + the direct/transcode decision — pure, tested
     transcode.py           #   HLS sessions: plan, playlist, ffmpeg args, restart-on-seek, reaper
     subtitles.py           #   sidecars + ffmpeg -f webvtt
     browse.py              #   places, folder listing, folder/playlist expansion
     dlna.py                #   SSDP discovery, ContentDirectory Browse, DIDL parsing; dlna:// dialog paths
+    thumbs.py              #   video thumbnails for the Open dialog (one ffmpeg frame, disk cache)
     playlists.py           #   M3U read/write — pure
     store.py               #   state.json: recent, positions, settings
     tokens.py              #   path <-> random token for media URLs
@@ -137,7 +138,17 @@ MiniDLNA's are 160 px `JPEG_TN`), via `/lk/art/<token>`, which fetches it
 (`dlna.check_url`), caches it, and serves **raster types only** (an SVG from
 this origin could carry script). Music shows the poster large in the player
 (`#lk-art`, `_show_art`), or the LizardKing poster when there is none (keep
-that: the user likes it). A server's **item** is its plain http URL, and that is
+that: the user likes it).
+
+Video thumbnails in the DLNA browser: `PlayerService.browse` adds `thumb`
+(`/lk/thumb/<token>`) to a server's video entries; the dialog's Listbox uses
+`template="{rowHtml}"` and `browse_row()` builds each row (escaped) with a
+lazy `<img>` for those. `thumbs.thumbnail` takes one frame a tenth of the way
+in (max 300 s), 320 px JPEG, at most 2 ffmpeg at once, cached in
+`cache_dir()/thumbs` (not wiped at start, unlike `transcode/`; keyed by URL,
+size and duration so a rescanned server's reused URL gets a new frame; pruned
+past 3000). No frame: the route answers the LizardKing avatar. Measured on
+the NAS: first visible thumbnails ~1.3 s, cached ~0.7 s. A server's **item** is its plain http URL, and that is
 the queue entry's `path`: `prepare` probes and transcodes it like a file
 (`media.is_remote`: no `os.stat` cache key, `-reconnect` input options), and
 direct play goes through `/lk/file/<token>`, which proxies the server with Range
