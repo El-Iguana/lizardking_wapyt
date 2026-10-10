@@ -31,7 +31,7 @@ appcode/                   # pytincture modules_path
   static/                  #   lk.js (caps, snapshot, fit/zoom), lizardking.css, logo (also the favicon) + poster — served at /lk/static
   services/
     player_service.py      #   BFF: browse, expand, prepare, info, positions, recent, settings, playlists
-    routes.py              #   plain routes: /lk/file, /lk/hls, /lk/vtt, /lk/cover, /lk/health
+    routes.py              #   plain routes: /lk/file (+ DLNA proxy), /lk/hls, /lk/vtt, /lk/cover, /lk/art, /lk/health
     media.py               #   ffprobe (cached) + the direct/transcode decision — pure, tested
     transcode.py           #   HLS sessions: plan, playlist, ffmpeg args, restart-on-seek, reaper
     subtitles.py           #   sidecars + ffmpeg -f webvtt
@@ -127,7 +127,17 @@ store it as `last_dir`. A DLNA listing also carries `label` (`Server › Video �
 Recently Added`, from container titles cached in `dlna._containers`), which the
 path box shows; Go/Enter on an unchanged label reloads `state["path"]`, anything
 typed is loaded as typed. *Media → Open Media Server* (Ctrl+D) is
-`_open_dialog(start="dlna://")`. A server's **item** is its plain http URL, and that is
+`_open_dialog(start="dlna://")`.
+
+Album art: `parse_didl` reads `upnp:albumArtURI` for containers and items, and
+`children` gives a track without its own the art of the album container it is
+in (known once the album list was browsed). `prepare` uses it as the poster
+only when the file has no embedded picture (embedded covers are bigger:
+MiniDLNA's are 160 px `JPEG_TN`), via `/lk/art/<token>`, which fetches it
+(`dlna.check_url`), caches it, and serves **raster types only** (an SVG from
+this origin could carry script). Music shows the poster large in the player
+(`#lk-art`, `_show_art`), or the LizardKing poster when there is none (keep
+that: the user likes it). A server's **item** is its plain http URL, and that is
 the queue entry's `path`: `prepare` probes and transcodes it like a file
 (`media.is_remote`: no `os.stat` cache key, `-reconnect` input options), and
 direct play goes through `/lk/file/<token>`, which proxies the server with Range

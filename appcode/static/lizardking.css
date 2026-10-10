@@ -32,6 +32,18 @@
 .lk-empty kbd { border: 1px solid #666; border-radius: 3px; padding: 0 5px; font: 13px ui-monospace, monospace; }
 .lk-empty.lk-hidden { display: none; }
 
+/* Music: the cover, large, under the compact audio bar. */
+.lk-art {
+  position: absolute; inset: 110px 0 0 0; display: grid; place-content: center; text-align: center; gap: 10px;
+  color: #bbb; font: 15px system-ui, sans-serif; pointer-events: none; z-index: 1;
+}
+.lk-art img {
+  width: min(320px, 45vh); aspect-ratio: 1; margin: 0 auto; object-fit: cover; border-radius: 10px;
+  box-shadow: 0 0 48px rgba(255, 170, 60, .18);
+}
+.lk-art b { font-size: 20px; color: #eee; }
+.lk-art.lk-hidden { display: none; }
+
 .lk-queue { height: 100%; display: flex; flex-direction: column; }
 .lk-queue-bar { display: flex; gap: 6px; padding: 6px 8px; align-items: center; font: 13px system-ui, sans-serif; opacity: .85; }
 .lk-queue-bar span { flex: 1; }

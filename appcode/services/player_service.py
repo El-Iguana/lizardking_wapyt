@@ -153,13 +153,18 @@ class PlayerService:
         title, subtitle = _title(path, info)
         kind = media.kind(info)
         cover = next((v for v in info.get("video", []) if v.get("attached_pic")), None)
+        poster = f"/lk/cover/{token}" if cover else None
+        if poster is None and dlna.is_url(path):
+            # No picture in the file: the album art the media server has for it.
+            art = (dlna.known(path) or {}).get("art")
+            poster = f"/lk/art/{tokens.token_for(art)}" if art else None
         settings = store.settings()
         start = store.position(path) if settings.get("resume") else None
         store.add_recent(path, title, kind)
         chosen = media.default_audio(info) if audio is None else audio
         return {
             "src": src, "title": title, "subtitle": subtitle, "kind": kind,
-            "poster": f"/lk/cover/{token}" if cover else None,
+            "poster": poster,
             "start": start or 0, "text_tracks": tracks,
             "mode": decision["mode"], "reasons": decision["reasons"],
             "audio_tracks": [{"index": n, "label": _audio_label(n, a)} for n, a in enumerate(info.get("audio", []))],
