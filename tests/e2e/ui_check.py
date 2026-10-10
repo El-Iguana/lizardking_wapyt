@@ -97,10 +97,9 @@ def stop_server(proc):
         proc.kill()
 
 
-def status(path, cookie=None):
-    request = urllib.request.Request(BASE + path, headers={"Cookie": cookie} if cookie else {})
+def status(path):
     try:
-        return urllib.request.urlopen(request, timeout=10).status
+        return urllib.request.urlopen(BASE + path, timeout=10).status
     except urllib.error.HTTPError as error:
         return error.code
 
@@ -122,10 +121,11 @@ def main():
 
 
 def run(tmp, media, url):
-    key = url.split("key=")[1]
-    check("without the key, the page is locked", status("/lizardking/") == 401)
-    check("with the key cookie it opens", status("/lizardking/", f"lizardking-key={key}") == 200)
-    check("a guessed media token is not a file", status("/lk/file/not-a-token", f"lizardking-key={key}") == 404)
+    check("the printed link is the plain page address", url == f"{BASE}/lizardking/", url)
+    check("the page opens without any key", status("/lizardking/") == 200)
+    landed = urllib.request.urlopen(f"http://localhost:{PORT}/lizardking/", timeout=10).url
+    check("localhost is sent on to 127.0.0.1", landed == f"{BASE}/lizardking/", landed)
+    check("a guessed media token is not a file", status("/lk/file/not-a-token") == 404)
 
     with sync_playwright() as p:
         # CHROME picks a browser; without it, Playwright's own Chromium

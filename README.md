@@ -47,10 +47,24 @@ uv sync
 uv run python service.py ~/Videos/some-film.mkv            # files or folders are optional
 ```
 
-It prints a link and opens it:
-`http://127.0.0.1:8777/lizardking/?key=…`. The key keeps other accounts on the
-same machine out; it is kept in `~/.local/share/lizardking/access.key`, so a
-bookmark of the page keeps working after the first visit.
+It opens `http://127.0.0.1:8777/lizardking/` in your browser. No login and no
+key: it listens on this computer only (127.0.0.1), so nothing on your network
+can reach it.
+
+## Desktop app
+
+LizardKing can also run as a desktop app: its own window and menu entry, no
+browser. It uses [Electron](https://www.electronjs.org/), which starts the
+server on a free port and stops it when you close the window. It needs Node.js
+and the `uv sync` above.
+
+```bash
+desktop/install.sh      # Electron, the icon, and LizardKing in the application menu
+```
+
+Then start **LizardKing** from the menu, or run
+`desktop/node_modules/electron/dist/electron desktop [FILES...]`. Run the
+installer again if you move the checkout.
 
 ## Settings
 
@@ -58,10 +72,9 @@ bookmark of the page keeps working after the first visit.
 |---|---|---|
 | `LIZARDKING_PORT` | `8777` | Port on 127.0.0.1 |
 | `LIZARDKING_ENCODER` | `auto` | `auto` (NVENC if it works, else libx264), or any ffmpeg H.264 encoder |
-| `LIZARDKING_DATA` | `~/.local/share/lizardking` | Recent files, positions, settings, the access key |
+| `LIZARDKING_DATA` | `~/.local/share/lizardking` | Recent files, positions, settings |
 | `LIZARDKING_CACHE` | `~/.cache/lizardking` | Transcode segments and subtitles; emptied at start |
 | `LIZARDKING_FFMPEG` / `LIZARDKING_FFPROBE` | `ffmpeg` / `ffprobe` | Other binaries |
-| `LIZARDKING_NO_KEY` | unset | `1` turns the access key off |
 | `LIZARDKING_LOG_LEVEL` | `warning` | uvicorn's log level |
 
 ## Tests

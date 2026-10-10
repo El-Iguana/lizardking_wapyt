@@ -46,7 +46,7 @@ def _xdg(variable: str, fallback: str) -> Path:
 
 
 def data_dir() -> Path:
-    """Recent files, resume positions, settings, the access key."""
+    """Recent files, resume positions, settings."""
     override = os.getenv("LIZARDKING_DATA")
     path = Path(override) if override else _xdg("XDG_DATA_HOME", ".local/share") / "lizardking"
     path.mkdir(parents=True, exist_ok=True)

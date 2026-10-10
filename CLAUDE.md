@@ -25,7 +25,7 @@ Siblings under `~/Development/Pytinc/`:
 ## Layout
 
 ```
-service.py                 # ASGI entrypoint: create_app, media routes, static, CSP patch, access key, CLI
+service.py                 # ASGI entrypoint: create_app, media routes, static, CSP patch, CLI
 appcode/                   # pytincture modules_path
   lizardking.py            #   the page (Pyodide). APP_ENTRYPOINT lives here.
   static/                  #   lk.js (caps, snapshot, fit/zoom), lizardking.css, logo (also the favicon) + poster — served at /lk/static
@@ -44,6 +44,8 @@ appcode/                   # pytincture modules_path
   wapyt-99.99.99-*.whl     #   dev wheel the BROWSER installs (git-ignored; dev_wheel.sh)
 tests/                     # pytest (unit + one real transcode)
 tests/e2e/ui_check.py      # Chromium end to end (makes its own media)
+desktop/                   # Electron shell: main.js spawns service.py on a free port, one window, quit stops it
+  install.sh               #   npm ci + Electron binary + ~/.local/share menu entry and icon
 ```
 
 ## Running
@@ -51,7 +53,7 @@ tests/e2e/ui_check.py      # Chromium end to end (makes its own media)
 ```bash
 uv sync
 ../wa_pytincture_widgetset/scripts/dev_wheel.sh appcode
-uv run python service.py [FILES...] [--no-browser]   # prints http://127.0.0.1:8777/lizardking/?key=…
+uv run python service.py [FILES...] [--no-browser]   # opens http://127.0.0.1:8777/lizardking/
 uv run --group dev pytest -q
 uv run --with playwright python tests/e2e/ui_check.py   # CHROME=… optional; LIZARDKING_E2E_DIR for its temp dir
 ```
@@ -63,16 +65,26 @@ scratch directory so the real `~/.local/share/lizardking` is untouched.
 |---|---|---|
 | `LIZARDKING_PORT` | `8777` | Port (always 127.0.0.1) |
 | `LIZARDKING_ENCODER` | `auto` | NVENC if a test encode works, else libx264 |
-| `LIZARDKING_DATA` | `~/.local/share/lizardking` | state.json, access.key |
+| `LIZARDKING_DATA` | `~/.local/share/lizardking` | state.json |
 | `LIZARDKING_CACHE` | `~/.cache/lizardking` | transcode sessions; wiped at start and stop |
 | `LIZARDKING_FFMPEG` / `_FFPROBE` | from PATH | binaries |
-| `LIZARDKING_NO_KEY` | unset | `1` disables the access key |
 | `LIZARDKING_LOG_LEVEL` | `warning` | uvicorn log level |
 
 **After editing `../wa_pytincture_widgetset/wapyt/assets/*`**, rebuild the
 dev wheel (command above) and restart. The browser installs the wheel in
 `appcode/`, not the venv copy; the venv copy (non-editable) only lets
 pytincture discover the widgetset.
+
+### Desktop app (Electron)
+
+`desktop/install.sh` installs it; the menu entry runs
+`desktop/node_modules/electron/dist/electron desktop %F`. `main.js` prefers
+`.venv/bin/python` (so SIGINT reaches service.py directly) and falls back to
+`uv run`. Electron is pinned in `desktop/package.json`; newer npm skips its
+install script, so `install.sh` runs `node_modules/electron/install.js` itself.
+Electron plays H.264/AAC and VP9/Opus directly, not HEVC: the same decisions as
+Chrome. To test headless: `xvfb-run` with `--remote-debugging-port` and attach
+Playwright over CDP.
 
 ## Things that will bite
 
@@ -92,13 +104,18 @@ Sessions, tokens, the store, the probe cache and startup files live in plain
 modules. `tests/test_bff.py` loads the module with pytincture's own loader
 twice and fails on module-level containers.
 
-### The access key gate and pytincture's own assets
+### No login, no access key
 
-`with_access_key` in `service.py` locks everything except `/lk/health`,
-`/favicon.ico` and `/<app>/frontend/…`. pytincture's service worker and
-preflight fetch the framework files with `credentials: "omit"`, so they never
-carry the cookie; gating them breaks startup with *Failed to load stylesheet
-…materialdesignicons.css*. Nothing of the app's is under those paths.
+LizardKing is a stand-alone single-user app: it listens on 127.0.0.1 only and
+asks for nothing. An access key (Jupyter-style) was tried and removed on
+purpose; don't add authentication back.
+
+### localhost redirects to 127.0.0.1
+
+pytincture answers only the canonical host: `http://localhost:8777` got a bare
+*Invalid host header* (400) that looks like a blank page. Its Origin checks are
+pinned to `127.0.0.1`, so adding localhost to `allowed_hosts` is not enough;
+`with_localhost_redirect` in `service.py` sends it on with a 307 instead.
 
 ### CSP: hls.js needs `media-src blob:`
 
