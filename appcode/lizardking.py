@@ -841,9 +841,11 @@ class LizardKing(MainWindow):
         d.on(show_all, "change", lambda _e: spawn(load(state["path"])))
         d.modal.on_close(lambda _e: listbox.destroy())
         d.show()
+        # The last folder first, so its serial is the lowest: a path typed
+        # while the places are still loading always wins.
+        spawn(load(""))
         for place in await PlayerService().places_async():
             d.button(places, place["label"], lambda p=place["path"]: spawn(load(p))).title = place["path"]
-        await load("")
 
     async def _open_paths(self, paths, replace=True, recursive=True):
         self._enqueue(await PlayerService().expand_async(paths, recursive), replace=replace)

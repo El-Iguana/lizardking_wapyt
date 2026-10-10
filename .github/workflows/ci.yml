@@ -44,8 +44,12 @@ jobs:
 
       - name: Dev wheel for the browser
         working-directory: lizardking_wapyt
-        # The runner's python3, which has pip (a uv venv does not).
-        run: ../wa_pytincture_widgetset/scripts/dev_wheel.sh appcode
+        # dev_wheel.sh runs `$PYTHON -m pip wheel`: the runner's python3 is
+        # 3.12, which wapyt refuses, and the project venv has no pip. A seeded
+        # 3.13 venv has both.
+        run: |
+          uv venv --seed -p 3.13 "$RUNNER_TEMP/wheelpy"
+          PYTHON="$RUNNER_TEMP/wheelpy/bin/python" ../wa_pytincture_widgetset/scripts/dev_wheel.sh appcode
 
       - name: End to end in Chromium
         working-directory: lizardking_wapyt
