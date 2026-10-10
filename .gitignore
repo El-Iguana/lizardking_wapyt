@@ -20,3 +20,6 @@ Thumbs.db
 # Logs and local test output
 *.log
 tests/e2e/*.png
+
+# Desktop app (npm ci in desktop/)
+desktop/node_modules/

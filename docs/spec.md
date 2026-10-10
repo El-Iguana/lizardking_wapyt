@@ -175,14 +175,9 @@ atomically:
 
 ## 8. Security
 
-The server listens on **127.0.0.1 only**, and still treats other accounts on
-the machine as strangers: every request needs the **access key** (Jupyter's
-model). `service.py` prints a link with `?key=…`, which is traded for an
-HttpOnly cookie; without either, the page is a "LizardKing is locked" notice.
-The key is in `~/.local/share/lizardking/access.key` (0600) and survives
-restarts, so a bookmark keeps working. `LIZARDKING_NO_KEY=1` turns it off.
-pyTincture's own framework files are exempt: they are the same public files in
-every pyTincture app, and its service worker fetches them without cookies.
+LizardKing is a stand-alone app for one person: there is no login and no
+access key. The server listens on **127.0.0.1 only**, so nothing on the network
+can reach it; any account on the same machine can, which is accepted.
 
 Media URLs carry tokens, not paths (§2). The Content-Security-Policy is
 pyTincture's plus `media-src 'self' blob: http: https:` (hls.js plays through
@@ -194,7 +189,7 @@ pyTincture's plus `media-src 'self' blob: http: https:` (hls.js plays through
   transcode with a seek restart, playlists, sidecars, the listing, the store,
   and the two pyTincture rules that only fail at run time (module-level state
   in BFF files; annotations that refuse `null`).
-* `tests/e2e/ui_check.py`: Chromium against a real server: the key lock; a
+* `tests/e2e/ui_check.py`: Chromium against a real server: opens without a key; a
   file from the command line; direct play with sidecar subtitles; jump, speed,
   fit, zoom, A→B loop, snapshot; an HEVC 10-bit + AC-3 Matroska transcoded, its
   full length, a far seek, switching audio track mid-film, Media Information; a
