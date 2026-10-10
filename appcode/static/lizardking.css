@@ -24,7 +24,10 @@
   position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 14px;
   color: #bbb; font: 15px system-ui, sans-serif; pointer-events: none; z-index: 1;
 }
-.lk-empty img { width: 132px; height: 132px; margin: 0 auto; border-radius: 50%; opacity: .9; }
+.lk-empty img {
+  width: min(280px, 42vh); aspect-ratio: 1; margin: 0 auto; border-radius: 10px;
+  box-shadow: 0 0 48px rgba(255, 170, 60, .18);
+}
 .lk-empty b { font-size: 22px; color: #eee; letter-spacing: .02em; }
 .lk-empty kbd { border: 1px solid #666; border-radius: 3px; padding: 0 5px; font: 13px ui-monospace, monospace; }
 .lk-empty.lk-hidden { display: none; }

@@ -28,7 +28,7 @@ Siblings under `~/Development/Pytinc/`:
 service.py                 # ASGI entrypoint: create_app, media routes, static, CSP patch, access key, CLI
 appcode/                   # pytincture modules_path
   lizardking.py            #   the page (Pyodide). APP_ENTRYPOINT lives here.
-  static/                  #   lk.js (caps, snapshot, fit/zoom), lizardking.css, logo — served at /lk/static
+  static/                  #   lk.js (caps, snapshot, fit/zoom), lizardking.css, logo (also the favicon) + poster — served at /lk/static
   services/
     player_service.py      #   BFF: browse, expand, prepare, info, positions, recent, settings, playlists
     routes.py              #   plain routes: /lk/file, /lk/hls, /lk/vtt, /lk/cover, /lk/health
