@@ -33,10 +33,23 @@ v0.1 is described in [docs/spec.md](docs/spec.md). Roughly in order of value:
   as blob URLs, direct only).
 - Reorder the playlist by dragging.
 
+## Media servers (DLNA)
+
+- **Readable paths** in the Open dialog while browsing a server (the path box
+  shows the encoded `dlna://<udn>/<id>` today): server and folder titles.
+- **Album art and posters from the server** (`upnp:albumArtURI`) when the file
+  has none of its own.
+- More servers checked live: Plex, Jellyfin, Serviio (MiniDLNA 1.3.3 is).
+- Play to a DLNA **renderer** (a TV): AVTransport, the other half of UPnP AV.
+
 ## Desktop
 
-- **"Open with LizardKing"**: a `.desktop` file and a second launch that hands
-  its files to the running instance instead of failing on the port.
-- Packaging: a `uv tool` install with a `lizardking` command; Flatpak.
+The Electron app (`desktop/`) has its own window, icon and menu entry, and
+opens files from the file manager.
+
+- A second launch with files should **hand them to the open window** (it only
+  focuses it now).
+- **Packaging**: an AppImage or Flatpak that bundles Electron, Python and
+  ffmpeg, so it runs without a source checkout.
 - A media key / MPRIS bridge on Linux (the page already sets Media Session
   metadata).

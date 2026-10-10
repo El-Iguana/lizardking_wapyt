@@ -145,7 +145,7 @@ def ffmpeg_args(path: str, info: dict, audio: Optional[int], out_dir: str, plan:
     if start_at > 0:
         # Before -i: seek the input instead of decoding everything up to here.
         args += ["-ss", f"{start_at:.6f}"]
-    args += ["-i", path]
+    args += [*media.input_args(path), "-i", path]
     picture = media.picture(info)
     if picture:
         args += ["-map", f"0:{picture['index']}"]

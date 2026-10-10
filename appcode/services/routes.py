@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import subprocess
 import threading
+import urllib.error
+import urllib.request
 
-from fastapi import APIRouter, HTTPException, Response
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
-from services import subtitles, tokens, transcode
+from services import dlna, media, subtitles, tokens, transcode
 from services.config import APP_NAME, VERSION, ffmpeg_bin
 
 router = APIRouter()
@@ -36,10 +38,45 @@ def health() -> dict:
     return {"app": APP_NAME, "version": VERSION, "encoders": transcode.sessions.running_count()}
 
 
+PROXY_HEADERS = ("content-type", "content-length", "content-range", "accept-ranges", "last-modified")
+PROXY_CHUNK = 256 * 1024
+
+
+def _proxy(url: str, range_header: str | None) -> Response:
+    """
+    A media server's file, passed through with its Range answers. Same-origin
+    for the page, so seeking works and a snapshot's canvas is not tainted.
+    """
+    try:
+        dlna.check_url(url)
+    except dlna.DlnaError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    request = urllib.request.Request(url, headers={"Range": range_header} if range_header else {})
+    try:
+        upstream = urllib.request.urlopen(request, timeout=20)
+    except urllib.error.HTTPError as error:
+        raise HTTPException(status_code=error.code, detail="The media server refused the request") from error
+    except OSError as error:
+        raise HTTPException(status_code=502, detail="The media server did not answer") from error
+    headers = {k: v for k, v in upstream.headers.items() if k.lower() in PROXY_HEADERS}
+    headers["Cache-Control"] = "no-store"
+
+    def body():
+        try:
+            while chunk := upstream.read(PROXY_CHUNK):
+                yield chunk
+        finally:
+            upstream.close()
+
+    return StreamingResponse(body(), status_code=upstream.status, headers=headers)
+
+
 @router.get("/lk/file/{token}")
-def media_file(token: str) -> FileResponse:
+def media_file(token: str, request: Request) -> Response:
     """The file as it is. Starlette answers Range requests, which seeking needs."""
     path = _path(token)
+    if media.is_remote(path):
+        return _proxy(path, request.headers.get("range"))
     try:
         return FileResponse(path, headers={"Cache-Control": "no-store"})
     except OSError as error:
@@ -88,7 +125,8 @@ def cover(token: str) -> Response:
         body = _covers.get(path)
     if body is None:
         out = subprocess.run(
-            [ffmpeg_bin(), "-hide_banner", "-nostdin", "-v", "error", "-i", path, "-map", "0:v:0", "-frames:v", "1",
+            [ffmpeg_bin(), "-hide_banner", "-nostdin", "-v", "error", *media.input_args(path), "-i", path,
+             "-map", "0:v:0", "-frames:v", "1",
              "-vf", "scale='min(600,iw)':-2", "-f", "image2", "-c:v", "mjpeg", "-"],
             capture_output=True, timeout=30, check=False)
         if out.returncode != 0 or not out.stdout:

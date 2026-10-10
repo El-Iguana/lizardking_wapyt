@@ -33,7 +33,8 @@ ZOOMS = [1.0, 1.25, 1.5, 2.0]
 SAVE_EVERY = 5.0          # seconds between saved resume positions
 DECODE_ERRORS = ("decode", "unsupported", "media")
 ICONS = {"folder": "mdi-folder", "video": "mdi-movie-open-outline", "audio": "mdi-music-note",
-         "playlist": "mdi-playlist-music", "subtitle": "mdi-subtitles-outline", "file": "mdi-file-outline"}
+         "playlist": "mdi-playlist-music", "subtitle": "mdi-subtitles-outline", "file": "mdi-file-outline",
+         "server": "mdi-server-network", "image": "mdi-image-outline"}
 
 SHORTCUTS = [
     ("Space, K", "Play / pause"), ("S", "Stop"), ("N / P", "Next / previous in the playlist"),

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import mimetypes
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -135,6 +136,14 @@ def main() -> None:
                     time.sleep(0.1)
             webbrowser.open(url)
         threading.Thread(target=open_when_up, daemon=True).start()
+
+    # uvicorn re-raises the signal that stopped it once it has shut down. For
+    # SIGTERM (kill, logout) the default action ends the process on the spot,
+    # skipping the finally below and leaving ffmpeg running: make it unwind
+    # like Ctrl+C instead.
+    def stop_on_sigterm(_signum, _frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop_on_sigterm)
 
     try:
         uvicorn.run(app, host=HOST, port=PORT, log_level=os.getenv("LIZARDKING_LOG_LEVEL", "warning"))
