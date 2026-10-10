@@ -23,6 +23,10 @@ from services.player_service import PlayerService
 
 APP_ENTRYPOINT = "LizardKing"
 
+# Browser tab icon. pytincture reads this literal from the app module and
+# resolves it against modules_path; .webp is among the types it serves.
+APP_FAVICON = "static/lizardking.webp"
+
 SPEEDS = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0, 4.0]
 FITS = [("contain", "Best Fit"), ("cover", "Crop to Fill"), ("fill", "Stretch")]
 ZOOMS = [1.0, 1.25, 1.5, 2.0]
@@ -199,7 +203,7 @@ class LizardKing(MainWindow):
         self.body.attach_html("player", (
             '<div class="lk-player" id="lk-player">'
             '<div id="lk-media" style="height:100%"></div>'
-            '<div class="lk-empty" id="lk-empty"><img src="/lk/static/lizardking.webp" alt="">'
+            '<div class="lk-empty" id="lk-empty"><img src="/lk/static/lizardking-poster.webp" alt="">'
             '<b>LizardKing</b><span>Open a file with <kbd>Ctrl</kbd>+<kbd>O</kbd>, '
             'a folder with <kbd>Ctrl</kbd>+<kbd>F</kbd></span><span class="lk-muted">Press <kbd>?</kbd> for shortcuts</span></div>'
             '<div class="lk-osd" id="lk-osd" role="status" aria-live="polite"></div>'
@@ -997,10 +1001,10 @@ class LizardKing(MainWindow):
 
     async def _about_dialog(self):
         r = await PlayerService().about_async()
-        d = Dialog("About LizardKing", width=460, height=400)
+        d = Dialog("About LizardKing", width=460, height=440)
         body = el("div", "lk-info")
         body.innerHTML = (
-            "<div style='text-align:center'><img src='/lk/static/lizardking.webp' alt='' width='110' height='110' style='border-radius:50%'>"
+            "<div style='text-align:center'><img src='/lk/static/lizardking.webp' alt='' width='128' height='128' style='border-radius:50%'>"
             f"<h2 style='margin:8px 0 2px'>LizardKing {html.escape(r['version'])}</h2>"
             "<p class='lk-muted' style='margin:0 0 12px'>“I am the Lizard King. I can do anything.”</p>"
             "<p>A local media player in the browser, built on pyTincture and wapyt. "

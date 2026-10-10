@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/lizardking.jpg" alt="LizardKing: an iguana in a fez and a white shirt, singing into a vintage microphone" width="320"></p>
+
 # LizardKing
 
 *I am the Lizard King. I can do anything.*
