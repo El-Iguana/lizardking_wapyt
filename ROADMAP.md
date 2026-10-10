@@ -1,39 +1,82 @@
 # LizardKing roadmap
 
-v0.1 is described in [docs/spec.md](docs/spec.md). Roughly in order of value:
+v0.1 is described in [docs/spec.md](docs/spec.md). The aim from here is
+**reasonable parity with VLC** for playing local files and a NAS: what people
+reach for in VLC every week should be in LizardKing, while the things VLC does
+that do not fit a local, single-user player stay out (see the last section).
 
-## Playback
+Already there: open files, folders, network addresses and DLNA servers; recent
+files and M3U playlists; repeat and shuffle; speed, jump to time, next frame,
+A→B loop, snapshot, fit and zoom, full screen; audio and subtitle tracks;
+resume; Media Information; VLC's keys; and anything ffmpeg reads, transcoded on
+the fly when the player cannot decode it.
 
+## 1. Next: gaps you hit in everyday use
+
+The first five matter most for typical rips (HEVC, 5.1 E-AC-3 or DTS,
+PGS or ASS subtitles, chapters):
+
+1. **Keep 5.1 surround.** Transcodes downmix every audio track to stereo
+   (`-ac 2` in `transcode.py`); VLC keeps the channels. Encode multichannel AAC
+   when the source has it (Chromium plays it), stereo only when it is stereo.
+2. **Image subtitles** (PGS, VobSub) burned in during a transcode, or rendered
+   over the video for direct play.
+3. **Styled ASS/SSA subtitles.** Converting them to WebVTT drops positioning,
+   fonts and styling; VLC renders them with libass. A WebAssembly libass
+   renderer (JASSUB-style) over the video would match it.
+4. **Chapters** from the container, in the seek bar and a menu, with
+   next/previous chapter keys.
+5. **Subtitle delay and audio delay** (VLC's G/H, J/K, which clash with
+   wapyt's J/K: needs a key plan).
+
+Then:
+
+- **Subtitle text encoding**: non-UTF-8 `.srt` files (Windows-1252, Latin-1,
+  …) detected and converted (`-sub_charenc`), as VLC does.
+- **Add a subtitle file** to what is playing; subtitle size and position.
+- **Choose the audio output device** (`setSinkId`).
+- **Durations up front** in the playlist: probe queued files in the background
+  instead of when each one plays.
+- **Forced aspect ratios** (16:9, 4:3, 2.35:1) and crop presets, as VLC's
+  `A`/`C`.
+- **Reorder the playlist by dragging**; **drag and drop** files from the
+  desktop (in Electron, with their paths).
+- **Force a transcode** from the menu, for a file the player accepts but plays
+  wrongly without reporting an error (as Chrome does with AC-3 in MKV:
+  silence). The page already falls back by itself when an error *is* reported.
+- **HDR to SDR tonemapping** for transcodes (`zscale` + `tonemap`, measured in
+  Orpheus at ~0.75× realtime in software).
 - **Copy-remux instead of re-encoding** when only the container or the audio is
   the problem (H.264 + DTS in .mkv, say). Needs segments cut on the source's own
   keyframes and their timestamps placed (Orpheus's `-segment_times` + `tfdt`
   rewrite), so a copied video stream costs no CPU and no quality.
-- **HDR to SDR tonemapping** for transcodes (`zscale` + `tonemap`, measured in
-  Orpheus at ~0.75× realtime in software).
-- **Image subtitles** (PGS, VobSub) burned in during a transcode.
+- **HEVC without a transcode**: find out whether Electron's Chromium decodes
+  HEVC in hardware on Linux (VA-API / NVIDIA); if so, most NAS films would play
+  directly.
 - **VA-API encoding** (Intel/AMD) alongside NVENC.
-- **Network streams through ffmpeg**: RTSP, RTMP, and http media the browser
-  cannot play (live streams have no duration, so an event playlist).
-- **Force a transcode** from the menu, for a file the browser accepts but
-  plays wrongly without reporting an error (as Chrome does with AC-3 in MKV:
-  silence). The page already falls back by itself when an error *is* reported.
-- **Chapters** from the container, in the seek bar and a menu.
+
+## 2. Toward VLC parity
+
+- **Discs**: DVD and Blu-ray without copy protection (ffmpeg's `dvdvideo` and
+  `bluray` inputs: titles and chapters, no disc menus at first), and audio CDs.
+- **Network streams through ffmpeg**: RTSP, RTMP, and http media the player
+  cannot decode; **internet radio** (Icecast/Shoutcast). Live streams have no
+  duration, so an event playlist and a live mode in the seek bar.
+- **Convert / Save**: transcode a file to a chosen format and keep it
+  (the engine is already here), and record what is playing.
+- **Picture-in-picture, always on top, a mini player.**
+- **Equalizer and audio normalisation** (Web Audio); a **visualizer** for
+  music.
+- **Video adjustments**: brightness, contrast, saturation (CSS filters);
+  rotate and flip; deinterlace on transcode.
 - **Gapless audio** between album tracks.
+- **Bookmarks** in a file; a **sleep timer** and *quit at end of playlist*.
+- **More playlist formats**: PLS and XSPF, read and written.
+- **Statistics** in Media Information: bitrate, dropped and decoded frames,
+  buffer.
+- **Customisable keyboard shortcuts.**
 
-## Controls
-
-- Forced aspect ratios (16:9, 4:3, 2.35:1) and crop presets, as VLC's `A`/`C`.
-- Subtitle delay and audio delay (VLC's G/H, J/K, which clash with wapyt's J/K:
-  needs a key plan).
-- Add a subtitle file to what is playing; subtitle size and position.
-- Equalizer and audio normalisation (Web Audio).
-- Video adjustments: brightness, contrast, saturation (CSS filters), deinterlace
-  on transcode.
-- Drag and drop of files from the desktop (the browser gives no paths: play them
-  as blob URLs, direct only).
-- Reorder the playlist by dragging.
-
-## Media servers (DLNA)
+## 3. Media servers (DLNA)
 
 - **Video posters** from servers that provide them (MiniDLNA gives album art
   only); album art as the list's thumbnails for music.
@@ -41,7 +84,7 @@ v0.1 is described in [docs/spec.md](docs/spec.md). Roughly in order of value:
 - More servers checked live: Plex, Jellyfin, Serviio (MiniDLNA 1.3.3 is).
 - Play to a DLNA **renderer** (a TV): AVTransport, the other half of UPnP AV.
 
-## Desktop
+## 4. Desktop
 
 The Electron app (`desktop/`) has its own window, icon and menu entry, and
 opens files from the file manager.
@@ -49,6 +92,15 @@ opens files from the file manager.
 - A second launch with files should **hand them to the open window** (it only
   focuses it now).
 - **Packaging**: an AppImage or Flatpak that bundles Electron, Python and
-  ffmpeg, so it runs without a source checkout.
-- A media key / MPRIS bridge on Linux (the page already sets Media Session
+  ffmpeg, so it runs without a source checkout (VLC installs anywhere).
+- A media key / **MPRIS** bridge on Linux (the page already sets Media Session
   metadata).
+
+## Not planned
+
+- **Streaming out** to other devices (VLC's *Stream*): LizardKing serves
+  127.0.0.1 only, on purpose. Playing *to* a TV is the DLNA renderer item.
+- **A media library** with scraped metadata: that is Orpheus's job.
+- **Extensions, skins, 360° and 3D video.**
+- **AC-3/DTS passthrough** to a receiver: a browser engine cannot send
+  bitstreamed audio, so this is a known limit, not a gap.
