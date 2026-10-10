@@ -13,12 +13,16 @@ import subprocess
 import threading
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
-from services import dlna, media, subtitles, tokens, transcode
+from services import dlna, media, subtitles, thumbs, tokens, transcode
 from services.config import APP_NAME, VERSION, ffmpeg_bin
+
+# Shown when a video has no frame to give (and as its placeholder in the list).
+NO_THUMB = Path(__file__).resolve().parent.parent / "static" / "lizardking.webp"
 
 router = APIRouter()
 
@@ -168,3 +172,21 @@ def art(token: str) -> Response:
                 _art.clear()
             _art[url] = cached
     return Response(cached[0], media_type=cached[1], headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.get("/lk/thumb/{token}")
+def thumb(token: str) -> Response:
+    """A frame of a video for the Open dialog's list; the LizardKing avatar when there is none."""
+    path = _path(token)
+    meta = {}
+    if media.is_remote(path):
+        try:
+            dlna.check_url(path)
+        except dlna.DlnaError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        meta = dlna.known(path) or {}
+    try:
+        body = thumbs.thumbnail(path, meta.get("size"), meta.get("duration"))
+    except thumbs.ThumbError:
+        return Response(NO_THUMB.read_bytes(), media_type="image/webp", headers={"Cache-Control": "no-store"})
+    return Response(body, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})

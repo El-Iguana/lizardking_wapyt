@@ -36,7 +36,8 @@ v0.1 is described in [docs/spec.md](docs/spec.md). Roughly in order of value:
 ## Media servers (DLNA)
 
 - **Video posters** from servers that provide them (MiniDLNA gives album art
-  only), and art as thumbnails in the Open dialog's list.
+  only); album art as the list's thumbnails for music.
+- **Thumbnails for local videos** too (the DLNA browser has them).
 - More servers checked live: Plex, Jellyfin, Serviio (MiniDLNA 1.3.3 is).
 - Play to a DLNA **renderer** (a TV): AVTransport, the other half of UPnP AV.
 

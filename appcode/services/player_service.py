@@ -77,7 +77,11 @@ class PlayerService:
 
     def browse(self, path: str = "", show_all: bool = False) -> dict:
         if dlna.is_dlna_path(path):
-            return dlna.listing(path, show_all=show_all)
+            result = dlna.listing(path, show_all=show_all)
+            for entry in result["entries"]:
+                if entry["kind"] == "video" and not entry["is_dir"]:
+                    entry["thumb"] = f"/lk/thumb/{tokens.token_for(entry['path'])}"
+            return result
         if not path:
             path = store.settings().get("last_dir") or ""
         result = browse.listing(path, show_all=show_all)
