@@ -13,6 +13,11 @@ like local files (ffmpeg reads http and seeks with Range requests).
 Only URLs on a discovered server are accepted for playback, so the page cannot
 make the server fetch arbitrary addresses.
 
+Servers are remembered between runs (``store.dlna_servers``): a remembered one
+is asked for its description directly, which takes milliseconds and works when
+multicast does not, and counts only if it answers with the same UDN. The
+search still runs, behind it, so a new server turns up on the next look.
+
 Plain module (not a BFF file): the server table and titles live for the life
 of the process.
 """
@@ -28,12 +33,15 @@ import xml.etree.ElementTree as ET
 from typing import Optional
 from urllib.parse import quote, unquote, urljoin, urlsplit
 
+from services import store
+
 SCHEME = "dlna://"
 ROOT_LABEL = "Network (DLNA)"
 SSDP_ADDR = ("239.255.255.250", 1900)
 MEDIA_SERVER = "urn:schemas-upnp-org:device:MediaServer:1"
 CONTENT_DIRECTORY = "urn:schemas-upnp-org:service:ContentDirectory:1"
 DISCOVER_SECONDS = 2.0
+REVIVE_SECONDS = 2.0          # a remembered server has this long to answer
 REDISCOVER_AFTER = 60.0       # seconds a discovery is trusted for
 HTTP_TIMEOUT = 10
 PAGE = 500                    # Browse results per request
@@ -41,8 +49,9 @@ MAX_CHILDREN = 5000           # one container, as browse.MAX_EXPAND for folders
 MAX_EXPAND = 5000
 MAX_DEPTH = 32                # containers walked up for a readable label
 
-_servers: dict[str, dict] = {}        # udn -> {udn, name, control, origin}
-_discovered_at = 0.0
+_servers: dict[str, dict] = {}        # udn -> {udn, name, control, origin, location}
+_discovered_at: Optional[float] = None
+_search_thread: Optional["_Search"] = None
 _titles: dict[str, dict] = {}         # media url -> {title, subtitle, kind}
 _containers: dict[tuple[str, str], dict] = {}   # (udn, container id) -> {title, parent}
 _lock = threading.Lock()
@@ -125,7 +134,7 @@ def parse_ssdp(data: bytes) -> Optional[dict]:
 
 
 def parse_device(xml: bytes | str, location: str) -> Optional[dict]:
-    """A device description -> {udn, name, control, origin} for a MediaServer, else None."""
+    """A device description -> {udn, name, control, origin, location} for a MediaServer, else None."""
     root = _xml(xml)
     base = _text(root, "URLBase") or location
     for device in root.iter():
@@ -136,7 +145,7 @@ def parse_device(xml: bytes | str, location: str) -> Optional[dict]:
             if _text(service, "serviceType").startswith("urn:schemas-upnp-org:service:ContentDirectory:"):
                 control = urljoin(base, _text(service, "controlURL"))
                 return {"udn": _text(device, "UDN"), "name": _text(device, "friendlyName") or urlsplit(location).hostname,
-                        "control": control, "origin": _origin(location)}
+                        "control": control, "origin": _origin(location), "location": location}
     return None
 
 
@@ -223,21 +232,18 @@ def _search(seconds: float) -> list[str]:
     return found
 
 
-def _fetch(url: str, data: bytes | None = None, headers: dict | None = None) -> bytes:
+def _fetch(url: str, data: bytes | None = None, headers: dict | None = None,
+           timeout: float = HTTP_TIMEOUT) -> bytes:
     request = urllib.request.Request(url, data=data, headers=headers or {})
     try:
-        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.read(16 * 1024 * 1024)
     except (urllib.error.URLError, OSError) as error:
         raise DlnaError(f"{urlsplit(url).netloc} did not answer ({getattr(error, 'reason', error)})") from error
 
 
-def discover(force: bool = False) -> list[dict]:
-    """The media servers on the network, discovered at most once a minute."""
-    global _discovered_at
-    with _lock:
-        if not force and _servers and time.monotonic() - _discovered_at < REDISCOVER_AFTER:
-            return sorted(_servers.values(), key=lambda s: s["name"].lower())
+def _search_servers() -> dict[str, dict]:
+    """The servers that answer a search, by UDN."""
     found = {}
     for location in _search(DISCOVER_SECONDS):
         try:
@@ -246,9 +252,89 @@ def discover(force: bool = False) -> list[dict]:
             continue
         if server and server["udn"]:
             found[server["udn"]] = server
+    return found
+
+
+class _Search(threading.Thread):
+    """One search of the network; what it finds joins the table and the store."""
+
+    def __init__(self) -> None:
+        super().__init__(name="lk-dlna-search", daemon=True)
+        self.found: dict[str, dict] = {}
+        self.error: Optional[DlnaError] = None
+
+    def run(self) -> None:
+        try:
+            self.found = _search_servers()
+        except DlnaError as error:
+            self.error = error
+            return
+        with _lock:
+            _servers.update(self.found)
+        store.remember_dlna_servers(list(self.found.values()))
+
+
+def _start_search() -> "_Search":
+    """The search under way, or a new one: never two at once."""
+    global _search_thread
     with _lock:
-        _servers.clear()
-        _servers.update(found)
+        if _search_thread is None or not _search_thread.is_alive():
+            _search_thread = _Search()
+            _search_thread.start()
+        return _search_thread
+
+
+def _revive(server: dict) -> Optional[dict]:
+    """A remembered server as it is now, if it still answers where it was."""
+    try:
+        found = parse_device(_fetch(server["location"], timeout=REVIVE_SECONDS), server["location"])
+    except (DlnaError, KeyError):
+        return None
+    return found if found and found["udn"] == server["udn"] else None
+
+
+def _revive_all(servers: list[dict]) -> dict[str, dict]:
+    """The remembered servers that answer, asked all at once."""
+    alive: dict[str, dict] = {}
+
+    def ask(server: dict) -> None:
+        found = _revive(server)
+        if found:
+            alive[found["udn"]] = found
+
+    threads = [threading.Thread(target=ask, args=(s,), daemon=True) for s in servers]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return alive
+
+
+def discover(force: bool = False) -> list[dict]:
+    """The media servers on the network, looked for at most once a minute.
+
+    Remembered servers that answer are enough to return at once; the search
+    that started with them adds any new server when it is done. With none
+    remembered (or none answering) the search is waited for.
+    """
+    global _discovered_at
+    with _lock:
+        if not force and _discovered_at is not None and time.monotonic() - _discovered_at < REDISCOVER_AFTER:
+            return sorted(_servers.values(), key=lambda s: s["name"].lower())
+    search = _start_search()
+    remembered = store.dlna_servers()
+    alive = _revive_all(remembered)
+    if not alive:
+        search.join()
+        if search.error and not search.found:
+            raise search.error
+        alive = search.found
+    store.remember_dlna_servers(list(alive.values()))
+    with _lock:
+        for server in remembered:       # one that no longer answers is not on the network now
+            if server["udn"] not in alive and server["udn"] not in search.found:
+                _servers.pop(server["udn"], None)
+        _servers.update(alive)
         _discovered_at = time.monotonic()
         return sorted(_servers.values(), key=lambda s: s["name"].lower())
 
@@ -369,12 +455,15 @@ def check_url(url: str) -> None:
         raise DlnaError("it is not on a media server on your network (is the server on?)")
 
 
-def listing(path: str, show_all: bool = False) -> dict:
-    """The Open dialog's view of ``dlna://…``, in the shape of ``browse.listing``."""
+def listing(path: str, show_all: bool = False, fresh: bool = True) -> dict:
+    """The Open dialog's view of ``dlna://…``, in the shape of ``browse.listing``.
+
+    ``fresh=False`` lists the servers from a look just taken, without another.
+    """
     udn, object_id = split_path(path)
     if not udn:
         try:
-            servers = discover(force=True)
+            servers = discover(force=fresh)
         except DlnaError as error:
             return {"path": SCHEME, "label": ROOT_LABEL, "parent": None, "entries": [], "error": str(error)}
         return {"path": SCHEME, "label": ROOT_LABEL, "parent": None,

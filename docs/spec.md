@@ -185,7 +185,13 @@ pyTincture's plus `media-src 'self' blob: http: https:` (hls.js plays through
 
 **DLNA.** The one thing LizardKing does on the network by itself: when you
 open *Network (DLNA)* it sends an SSDP search (multicast, local network only)
-and talks to the media servers that answer. It plays only URLs on a server it
+and talks to the media servers that answer. A server that answered is
+remembered in `state.json` (name, UDN, description address); from then on it is
+asked for its description directly, which takes milliseconds and does not
+depend on multicast, and it counts only if it answers with the same UDN. The
+search still runs behind that, so a new server appears on the next look.
+Nothing is contacted until you open the servers or play something from one.
+It plays only URLs on a server it
 discovered (`dlna.check_url`), refuses XML with a DTD, and serves a server's
 files to the page through its own origin (`/lk/file/<token>`), and its album
 art through `/lk/art/<token>` as JPEG, PNG, WebP or GIF only. Video thumbnails

@@ -41,7 +41,7 @@ def test_an_ssdp_answer_gives_its_location():
 def test_a_device_description_gives_the_content_directory():
     server = dlna.parse_device(DEVICE, "http://10.0.0.2:8200/rootDesc.xml")
     assert server == {"udn": "uuid:abc-123", "name": "NAS", "control": "http://10.0.0.2:8200/ctl/ContentDir",
-                      "origin": "http://10.0.0.2:8200"}
+                      "origin": "http://10.0.0.2:8200", "location": "http://10.0.0.2:8200/rootDesc.xml"}
 
 
 def test_xml_with_a_dtd_is_refused():
@@ -235,3 +235,139 @@ def test_album_art_from_anywhere_else_is_refused(monkeypatch):
     with pytest.raises(HTTPException) as refused:
         routes.art(tokens.token_for("http://203.0.113.9/AlbumArt/1.jpg"))
     assert refused.value.status_code == 403
+
+
+# Remembered servers ----------------------------------------------------------------
+
+LOCATION = "http://10.0.0.2:8200/rootDesc.xml"
+
+
+@pytest.fixture
+def network(monkeypatch):
+    """A network of device descriptions by address; ``search`` is what SSDP finds."""
+    net = {"devices": {}, "search": [], "searches": 0, "hold": None}
+
+    def fetch(url, data=None, headers=None, timeout=None):
+        if url not in net["devices"]:
+            raise dlna.DlnaError(f"{url} did not answer")
+        return net["devices"][url].encode()
+
+    def search(_seconds):
+        net["searches"] += 1
+        if net["hold"] is not None:
+            net["hold"].wait(5)
+        return list(net["search"])
+
+    monkeypatch.setattr(dlna, "_fetch", fetch)
+    monkeypatch.setattr(dlna, "_search", search)
+    monkeypatch.setattr(dlna, "_servers", {})
+    monkeypatch.setattr(dlna, "_discovered_at", None)
+    monkeypatch.setattr(dlna, "_search_thread", None)
+    yield net
+    if net["hold"] is not None:
+        net["hold"].set()
+    if dlna._search_thread is not None:
+        dlna._search_thread.join(5)
+
+
+def _restart(monkeypatch):
+    """A new run: nothing in memory, state.json as it was left."""
+    from services import store
+    if dlna._search_thread is not None:
+        dlna._search_thread.join(5)
+    store.use_file(None)
+    monkeypatch.setattr(dlna, "_servers", {})
+    monkeypatch.setattr(dlna, "_discovered_at", None)
+
+
+def test_a_server_found_once_is_there_on_the_next_run_without_a_search(network, monkeypatch):
+    import threading
+    network["devices"][LOCATION] = DEVICE
+    network["search"] = [LOCATION]
+    assert [s["name"] for s in dlna.discover(force=True)] == ["NAS"]
+
+    _restart(monkeypatch)
+    network["search"] = []                      # multicast finds nothing this time
+    network["hold"] = threading.Event()         # and has not even answered yet
+    assert [s["name"] for s in dlna.discover(force=True)] == ["NAS"]
+    dlna.check_url("http://10.0.0.2:8200/MediaItems/1.mp3")
+
+
+def test_a_new_server_joins_when_the_search_behind_finishes(network, monkeypatch):
+    network["devices"][LOCATION] = DEVICE
+    network["search"] = [LOCATION]
+    dlna.discover(force=True)
+
+    _restart(monkeypatch)
+    other = "http://10.0.0.3:8200/rootDesc.xml"
+    network["devices"][other] = DEVICE.replace("uuid:abc-123", "uuid:other").replace(">NAS<", ">Den<")
+    network["search"] = [LOCATION, other]
+    dlna.discover(force=True)
+    dlna._search_thread.join(5)
+    assert [s["name"] for s in dlna.discover(force=True)] == ["Den", "NAS"]
+
+
+def test_a_remembered_server_that_moved_is_found_by_the_search(network, monkeypatch):
+    from services import store
+    network["devices"][LOCATION] = DEVICE
+    network["search"] = [LOCATION]
+    dlna.discover(force=True)
+
+    _restart(monkeypatch)
+    moved = "http://10.0.0.7:8200/rootDesc.xml"
+    network["devices"] = {moved: DEVICE}
+    network["search"] = [moved]
+    assert [s["origin"] for s in dlna.discover(force=True)] == ["http://10.0.0.7:8200"]
+    assert [s["location"] for s in store.dlna_servers()] == [moved]
+    with pytest.raises(dlna.DlnaError):
+        dlna.check_url("http://10.0.0.2:8200/MediaItems/1.mp3")     # the old address is nobody now
+
+
+def test_another_device_at_a_remembered_address_is_not_trusted(network, monkeypatch):
+    network["devices"][LOCATION] = DEVICE
+    network["search"] = [LOCATION]
+    dlna.discover(force=True)
+
+    _restart(monkeypatch)
+    network["devices"][LOCATION] = DEVICE.replace("uuid:abc-123", "uuid:someone-else")
+    network["search"] = []
+    assert dlna.discover(force=True) == []
+    with pytest.raises(dlna.DlnaError):
+        dlna.check_url("http://10.0.0.2:8200/MediaItems/1.mp3")
+
+
+def test_a_server_that_is_off_is_not_listed_but_not_forgotten(network, monkeypatch):
+    from services import store
+    network["devices"][LOCATION] = DEVICE
+    network["search"] = [LOCATION]
+    dlna.discover(force=True)
+    network["devices"], network["search"] = {}, []
+    assert dlna.discover(force=True) == []
+    assert dlna.listing("dlna://")["error"] == "No media servers answered on your network."
+    assert [s["udn"] for s in store.dlna_servers()] == ["uuid:abc-123"]
+
+
+def test_only_the_most_recent_servers_are_kept():
+    from services import store
+    store.remember_dlna_servers([{"udn": f"uuid:{n}", "name": str(n), "control": "c", "origin": "o",
+                                  "location": f"http://10.0.0.{n}/d.xml"} for n in range(store.DLNA_SERVERS_LIMIT + 5)])
+    assert len(store.dlna_servers()) == store.DLNA_SERVERS_LIMIT
+
+
+def test_open_media_server_goes_back_to_the_folder_last_looked_at(nas, monkeypatch):
+    from services import store
+    from services.player_service import PlayerService
+    service, album = PlayerService(), dlna.make_path("uuid:abc-123", "1$7")
+    assert service.browse("dlna://", False, True)["path"] == "dlna://"      # nothing to go back to yet
+    assert store.settings()["last_dlna"] == ""                              # the list of servers is not a place
+    service.browse(album)
+    assert store.settings()["last_dlna"] == album
+    assert service.browse("dlna://", False, True)["label"] == "NAS › Music › Album"
+    assert service.browse("dlna://")["path"] == "dlna://"                   # the Network place still lists servers
+
+    def off(udn):
+        raise dlna.DlnaError("that media server is not on the network now")
+    monkeypatch.setattr(dlna, "_server", off)
+    back = service.browse("dlna://", False, True)
+    assert back["path"] == "dlna://" and [e["name"] for e in back["entries"]] == ["NAS"]
+    assert store.settings()["last_dlna"] == album                           # still there when it is back on

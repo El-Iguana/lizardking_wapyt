@@ -75,9 +75,20 @@ class PlayerService:
     def places(self) -> list:
         return browse.places() + [{"label": dlna.ROOT_LABEL, "path": dlna.SCHEME, "icon": "mdi-lan"}]
 
-    def browse(self, path: str = "", show_all: bool = False) -> dict:
+    def browse(self, path: str = "", show_all: bool = False, resume: bool = False) -> dict:
+        """A folder, or a media server's. ``resume`` with the servers' root
+        (*Open Media Server*) goes back to the server folder last looked at."""
         if dlna.is_dlna_path(path):
-            result = dlna.listing(path, show_all=show_all)
+            last = store.settings().get("last_dlna") or ""
+            result = None
+            if resume and path == dlna.SCHEME and last:
+                result = dlna.listing(last, show_all=show_all)
+                if result["error"]:     # the server is off: show the ones that are on
+                    result = dlna.listing(path, show_all=show_all, fresh=False)
+            if result is None:
+                result = dlna.listing(path, show_all=show_all)
+            if not result["error"] and result["path"] not in (dlna.SCHEME, last):
+                store.update_settings({"last_dlna": result["path"]})
             for entry in result["entries"]:
                 if entry["kind"] == "video" and not entry["is_dir"]:
                     entry["thumb"] = f"/lk/thumb/{tokens.token_for(entry['path'])}"

@@ -1,6 +1,6 @@
 """
 What LizardKing remembers between runs: recent files, where you stopped in
-each, and settings. One JSON file, ``state.json`` in the data directory,
+each, settings, and the media servers it has found. One JSON file, ``state.json`` in the data directory,
 replaced atomically on every change.
 
 Plain module: one lock and one in-memory copy for the process.
@@ -18,6 +18,8 @@ from services.config import data_dir
 
 RECENT_LIMIT = 30
 POSITIONS_LIMIT = 1000
+DLNA_SERVERS_LIMIT = 20
+DLNA_SEEN_EVERY = 86400.0     # a server that has not changed is rewritten once a day
 # Resume only from a real position, and not from the credits.
 RESUME_MIN_SECONDS = 15.0
 RESUME_TAIL_SECONDS = 20.0
@@ -30,6 +32,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "resume": True,
     "playlist_open": True,
     "last_dir": "",
+    "last_dlna": "",
     "repeat": "off",
     "shuffle": False,
 }
@@ -59,6 +62,7 @@ def _load() -> dict:
             _state = {}
         _state.setdefault("recent", [])
         _state.setdefault("positions", {})
+        _state.setdefault("dlna_servers", {})
         _state["settings"] = {**DEFAULT_SETTINGS, **(_state.get("settings") or {})}
     return _state
 
@@ -118,6 +122,32 @@ def position(path: str) -> Optional[float]:
     with _lock:
         entry = _load()["positions"].get(path)
         return entry["position"] if entry else None
+
+
+def dlna_servers() -> list[dict]:
+    """The media servers found so far, in this run or an earlier one."""
+    with _lock:
+        return [dict(s) for s in _load()["dlna_servers"].values()]
+
+
+def remember_dlna_servers(servers: list[dict]) -> None:
+    """Keep where each server is, so the next run finds it without a search."""
+    with _lock:
+        known = _load()["dlna_servers"]
+        now, changed = time.time(), False
+        for server in servers:
+            entry = {key: server[key] for key in ("udn", "name", "control", "origin", "location") if server.get(key)}
+            if not entry.get("udn") or not entry.get("location"):
+                continue
+            old = known.get(entry["udn"]) or {}
+            if any(old.get(key) != value for key, value in entry.items()) or now - old.get("seen", 0) > DLNA_SEEN_EVERY:
+                known[entry["udn"]] = {**entry, "seen": now}
+                changed = True
+        for udn in sorted(known, key=lambda u: known[u].get("seen", 0), reverse=True)[DLNA_SERVERS_LIMIT:]:
+            del known[udn]
+            changed = True
+        if changed:
+            _save()
 
 
 def settings() -> dict:
