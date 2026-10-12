@@ -67,6 +67,20 @@ def test_args_from_the_start_have_no_seek_and_nvenc_keeps_4k():
     assert [args[i + 1] for i, a in enumerate(args) if a == "-map"] == ["0:0", "0:1"]  # default audio
 
 
+def test_surround_stays_surround_and_everything_else_is_stereo():
+    plan = transcode.plan_segments(100.0, 24.0)
+
+    def sound(channels):
+        info = {**INFO, "audio": [{"index": 1, "codec": "dts", "default": True, "channels": channels}]}
+        args = transcode.ffmpeg_args("/f.mkv", info, None, "/tmp/s", plan)
+        return args[args.index("-ac") + 1], args[args.index("-b:a") + 1]
+
+    assert sound(6) == ("6", "384k")                    # 5.1 kept
+    assert sound(8) == ("6", "384k") == sound(7)        # 7.1 and 6.1 mixed down to 5.1
+    assert sound(2) == ("2", "192k") == sound(1) == sound(None)
+    assert sound(4) == ("2", "192k")                    # quad: no AAC layout every player takes
+
+
 def test_audio_only_maps_no_picture():
     info = {"duration": 30.0, "video": [{"index": 1, "attached_pic": True}], "audio": [{"index": 0, "codec": "wmav2"}]}
     args = transcode.ffmpeg_args("/a.wma", info, None, "/tmp/s", transcode.plan_segments(30.0))

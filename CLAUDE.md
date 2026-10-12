@@ -201,6 +201,12 @@ to whole frames, forced keyframes, restart with `-ss`/`-start_number`/
 playlist, `temp_file` for atomic rewrites, `yuv420p` always. The reaper stops
 idle encoders but keeps the session so the URL stays valid.
 
+Sound: `transcode.audio_channels` decides 5.1 (source has six channels or
+more; 7.1/6.1 mixed down) or stereo; `-ac` also normalises DTS's `5.1(side)`.
+The e2e film's main track has a tone in the back left channel only, and the
+test reads the six channels with Web Audio: a stereo downmix fails it. On a
+stereo output the browser does the downmix, not ffmpeg.
+
 ### Page code
 
 - `APP_ENTRYPOINT = "LizardKing"` is mandatory (pytincture's MainWindow

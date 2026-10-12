@@ -9,24 +9,21 @@ Already there: open files, folders, network addresses and DLNA servers; recent
 files and M3U playlists; repeat and shuffle; speed, jump to time, next frame,
 A→B loop, snapshot, fit and zoom, full screen; audio and subtitle tracks;
 resume; Media Information; VLC's keys; and anything ffmpeg reads, transcoded on
-the fly when the player cannot decode it.
+the fly (5.1 surround kept) when the player cannot decode it.
 
 ## 1. Next: gaps you hit in everyday use
 
-The first five matter most for typical rips (HEVC, 5.1 E-AC-3 or DTS,
+The first four matter most for typical rips (HEVC, 5.1 E-AC-3 or DTS,
 PGS or ASS subtitles, chapters):
 
-1. **Keep 5.1 surround.** Transcodes downmix every audio track to stereo
-   (`-ac 2` in `transcode.py`); VLC keeps the channels. Encode multichannel AAC
-   when the source has it (Chromium plays it), stereo only when it is stereo.
-2. **Image subtitles** (PGS, VobSub) burned in during a transcode, or rendered
+1. **Image subtitles** (PGS, VobSub) burned in during a transcode, or rendered
    over the video for direct play.
-3. **Styled ASS/SSA subtitles.** Converting them to WebVTT drops positioning,
+2. **Styled ASS/SSA subtitles.** Converting them to WebVTT drops positioning,
    fonts and styling; VLC renders them with libass. A WebAssembly libass
    renderer (JASSUB-style) over the video would match it.
-4. **Chapters** from the container, in the seek bar and a menu, with
+3. **Chapters** from the container, in the seek bar and a menu, with
    next/previous chapter keys.
-5. **Subtitle delay and audio delay** (VLC's G/H, J/K, which clash with
+4. **Subtitle delay and audio delay** (VLC's G/H, J/K, which clash with
    wapyt's J/K: needs a key plan).
 
 Then:
@@ -35,6 +32,9 @@ Then:
   …) detected and converted (`-sub_charenc`), as VLC does.
 - **Add a subtitle file** to what is playing; subtitle size and position.
 - **Choose the audio output device** (`setSinkId`).
+- **7.1 kept as 7.1** in a transcode (it is mixed down to 5.1 now), if
+  Chromium and Firefox both decode eight-channel AAC; a **stereo downmix**
+  choice for when the player's own mix of a 5.1 track sounds wrong.
 - **Durations up front** in the playlist: probe queued files in the background
   instead of when each one plays.
 - **Forced aspect ratios** (16:9, 4:3, 2.35:1) and crop presets, as VLC's
