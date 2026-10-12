@@ -519,7 +519,7 @@ wheels = [
 
 [[package]]
 name = "wapyt"
-version = "0.2.0.dev1"
+version = "0.2.0"
 source = { directory = "../wa_pytincture_widgetset" }
 
 [package.metadata]
