@@ -130,6 +130,21 @@ path box shows; Go/Enter on an unchanged label reloads `state["path"]`, anything
 typed is loaded as typed. *Media → Open Media Server* (Ctrl+D) is
 `_open_dialog(start="dlna://")`.
 
+Memory: `store.dlna_servers` keeps every server found (udn, name, control,
+origin, description `location`; newest 20) in `state.json`. `dlna.discover`
+starts the SSDP search in a thread (`_Search`, one at a time) and meanwhile
+asks the remembered servers for their description (`_revive`: same UDN or it
+does not count, so another device at that address is never trusted by
+`check_url`). Any that answer: return at once, and the search adds new servers
+to the table and the store when it ends. None: wait for the search (a server
+whose address changed is found that way and its entry replaced). A server that
+is off is not listed but stays remembered. `browse(path, show_all, resume)`:
+the dialog's first load passes `resume=True`, and with `dlna://` that reopens
+`settings["last_dlna"]` (the last server folder listed without error; the
+server list itself is never stored), falling back to the server list when that
+server does not answer. The *Network (DLNA)* place always lists servers.
+Measured on the NAS: Open Media Server 2.15 s the first time, 0.05 s after.
+
 Album art: `parse_didl` reads `upnp:albumArtURI` for containers and items, and
 `children` gives a track without its own the art of the album container it is
 in (known once the album list was browsed). `prepare` uses it as the poster

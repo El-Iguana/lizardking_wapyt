@@ -854,14 +854,14 @@ class LizardKing(MainWindow):
         d.button(actions, "Enqueue", lambda: go(False))
         d.button(actions, "Play Folder" if folder else "Play", lambda: go(True), primary=True)
 
-        async def load(path):
+        async def load(path, resume=False):
             if path is None:
                 return
             # Only the latest request counts: the first load (the last folder
             # used) can come back after a path typed in the meantime.
             state["serial"] = serial = state.get("serial", 0) + 1
             shown = path_input.value
-            r = await PlayerService().browse_async(path, bool(show_all.checked))
+            r = await PlayerService().browse_async(path, bool(show_all.checked), resume)
             if serial != state["serial"]:
                 return
             # A media server's folders read as "Server › Video › Recently
@@ -896,10 +896,10 @@ class LizardKing(MainWindow):
         d.on(show_all, "change", lambda _e: spawn(load(state["path"])))
         d.modal.on_close(lambda _e: listbox.destroy())
         d.show()
-        # The start folder (the last one used, or the media servers) first,
-        # so its serial is the lowest: a path typed while the places are
-        # still loading always wins.
-        spawn(load(start))
+        # The start folder (the last one used, on the disk or on a media
+        # server) first, so its serial is the lowest: a path typed while the
+        # places are still loading always wins.
+        spawn(load(start, True))
         for place in await PlayerService().places_async():
             d.button(places, place["label"], lambda p=place["path"]: spawn(load(p))).title = place["path"]
 
