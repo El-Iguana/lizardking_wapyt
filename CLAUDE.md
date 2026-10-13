@@ -201,6 +201,16 @@ to whole frames, forced keyframes, restart with `-ss`/`-start_number`/
 playlist, `temp_file` for atomic rewrites, `yuv420p` always. The reaper stops
 idle encoders but keeps the session so the URL stays valid.
 
+Image subtitles (PGS, VobSub): `media.burnable` / `transcode.burn_graph`.
+The chosen one (its ffprobe stream index, `burn`) is part of the session key
+and of `prepare` / `info` / `media.plan`. The page keeps it in
+`options[uid]["burn"]` and switches with `player.refresh()`, as for an audio
+track; `options[uid]["text"]` says once which text track the reloaded item
+shows, so the two never show together. ffmpeg cannot encode PGS, so
+`tests/pgs.py` writes a `.sup` by hand (a magenta box) for the unit test and
+the e2e film, which both read the pixel where it belongs. ffprobe gives no
+size for a real PGS stream: the graph never needs it.
+
 Sound: `transcode.audio_channels` decides 5.1 (source has six channels or
 more; 7.1/6.1 mixed down) or stereo; `-ac` also normalises DTS's `5.1(side)`.
 The e2e film's main track has a tone in the back left channel only, and the
@@ -215,7 +225,7 @@ stereo output the browser does the downmix, not ffmpeg.
 - The page lives at `/lizardking/`: use absolute URLs (`/lk/...`).
 - An async step that can be overtaken (the Open dialog's first folder load vs a
   typed path) uses a serial number: only the latest result is applied.
-- `body.dataset.ready / mode / resolved / loop` exist for the e2e test.
+- `body.dataset.ready / mode / resolved / loop / burn` exist for the e2e test.
 
 ### Testing traps
 

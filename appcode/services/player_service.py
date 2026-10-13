@@ -65,6 +65,11 @@ def _audio_label(n: int, a: dict) -> str:
     return f"{parts[0]} ({detail.strip()})" if detail.strip() else parts[0]
 
 
+def _image_label(s: dict) -> str:
+    label = s.get("title") or subtitles.language_label(s.get("language")) or f"Track {s['index']}"
+    return f"{label} ({'forced, ' if s.get('forced') else ''}image)"
+
+
 @backend_for_frontend
 class PlayerService:
     def __init__(self, _user: dict = None) -> None:
@@ -121,11 +126,13 @@ class PlayerService:
 
     # Playing -------------------------------------------------------------
 
-    def prepare(self, path: str, caps: dict | None = None, audio: int | None = None, force_transcode: bool = False) -> dict:
+    def prepare(self, path: str, caps: dict | None = None, audio: int | None = None, force_transcode: bool = False,
+                burn: int | None = None) -> dict:
         """
         Everything the player needs for one file: its URL (the file itself, or
         a transcode session), subtitles, title, where to resume, and why it is
-        played the way it is.
+        played the way it is. ``burn`` is an image subtitle (its stream
+        number) to draw into the picture.
         """
         path = _expand(path)
         if dlna.is_url(path):
@@ -140,7 +147,8 @@ class PlayerService:
         except media.ProbeError as error:
             raise ValueError(f"Cannot read {_name(path)}: {error}") from error
         ext = media.extension(path)
-        decision = media.plan(info, ext, caps or {}, audio)
+        burn = burn if media.burnable(info, burn) else None
+        decision = media.plan(info, ext, caps or {}, audio, burn)
         if force_transcode and decision["mode"] == "direct" and info.get("duration"):
             decision = {"mode": "transcode", "reasons": ["the browser could not decode it as it is"]}
         if decision["mode"] == "none":
@@ -150,7 +158,7 @@ class PlayerService:
         if decision["mode"] == "direct":
             src = f"/lk/file/{token}"
         else:
-            session = transcode.sessions.open(path, info, audio)
+            session = transcode.sessions.open(path, info, audio, burn)
             src = f"/lk/hls/{session.id}/index.m3u8"
 
         tracks = []
@@ -185,10 +193,12 @@ class PlayerService:
             "audio_tracks": [{"index": n, "label": _audio_label(n, a)} for n, a in enumerate(info.get("audio", []))],
             "audio": chosen, "duration": info.get("duration"),
             "fps": (media.picture(info) or {}).get("fps") or 0,
-            "skipped_subtitles": sum(1 for s in info.get("subtitles", []) if not s.get("text")),
+            "image_subtitles": [{"index": s["index"], "label": _image_label(s)}
+                                for s in info.get("subtitles", []) if media.burnable(info, s["index"])],
+            "burn": burn,
         }
 
-    def info(self, path: str, caps: dict | None = None, audio: int | None = None) -> dict:
+    def info(self, path: str, caps: dict | None = None, audio: int | None = None, burn: int | None = None) -> dict:
         """The Media Information dialog: streams, tags and how it plays."""
         path = _expand(path)
         if dlna.is_url(path):
@@ -200,7 +210,7 @@ class PlayerService:
             info = media.probe(path)
         except media.ProbeError as error:
             raise ValueError(str(error)) from error
-        decision = media.plan(info, media.extension(path), caps or {}, audio)
+        decision = media.plan(info, media.extension(path), caps or {}, audio, burn)
         transcoded = decision["mode"] == "transcode"
         tracks = info.get("audio", [])
         chosen = media.default_audio(info) if audio is None else audio

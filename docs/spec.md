@@ -122,8 +122,19 @@ WebVTT is the only format `<track>` takes, so everything goes through
   `.vtt`, `.ass`, `.ssa`. Language and flags come from the name
   (`Film.en.srt` → English, `Film.fr.forced.ass` → French (forced)).
 * **Embedded text streams** (SubRip, ASS, mov_text): one VTT per stream.
-* **Image subtitles** (PGS, VobSub) are listed in Media Information as not
-  supported yet; burning them in is on the roadmap.
+* **Image subtitles** inside the file (PGS, VobSub, DVB) cannot become text.
+  The one chosen is drawn into the picture by the transcode
+  (`transcode.burn_graph`: the subtitle's canvas fitted inside the video
+  without changing its shape, centred, `overlay`), so choosing one is a reason
+  to transcode, like a non-default audio track, and taking it out can go back
+  to direct play. They are in *Subtitles → Subtitle Track* after the text
+  tracks, marked *(image)*, and **V** / **C** reach them; the player's own CC
+  menu only knows `<track>`s and does not list them. Only one subtitle shows at
+  a time. Measured on the NAS: a 1080p film with PGS encodes 44 s in 1.6 s on
+  NVENC, a 4K HDR one 32 s in 8 s, the same as without the subtitle. A seek
+  that lands inside a caption may not draw that one; the next is on time.
+  Image subtitles in files beside the video (`.sup`, `.sub`/`.idx`) are not
+  read.
 
 ## 6. The page (`appcode/lizardking.py`)
 

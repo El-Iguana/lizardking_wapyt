@@ -4,7 +4,7 @@ Subtitles as WebVTT, the only format a ``<track>`` takes.
 Two sources: sidecar files next to the video (``Film.srt``, ``Film.en.srt``,
 ``Film.English.ass``) and text streams inside it (SubRip, ASS, mov_text).
 Both go through ``ffmpeg -f webvtt``. Image subtitles (PGS, VobSub) cannot
-become text; burning them in is on the roadmap.
+become text: ``transcode.py`` draws the chosen one into the picture.
 
 ``sidecars`` is pure apart from listing one directory. Conversions are cached
 in memory by source path, mtime and stream.

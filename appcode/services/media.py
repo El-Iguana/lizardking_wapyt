@@ -30,6 +30,8 @@ OPTIONAL_VIDEO = {"hevc": "hevc", "av1": "av1"}
 OPTIONAL_AUDIO = {"ac3": "ac3", "eac3": "eac3"}
 PCM_PREFIX = "pcm_"
 TEXT_SUBTITLES = {"subrip", "ass", "ssa", "webvtt", "mov_text", "text", "microdvd"}
+# Pictures, not text: they can only be drawn into the video (transcode.py).
+IMAGE_SUBTITLES = {"hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub"}
 HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
 
 # ffprobe's format_name for each container family.
@@ -100,6 +102,7 @@ def normalize(raw: dict) -> dict:
         elif kind == "subtitle":
             base.update({
                 "text": base["codec"] in TEXT_SUBTITLES,
+                "image": base["codec"] in IMAGE_SUBTITLES,
                 "forced": bool(disposition.get("forced")),
             })
             info["subtitles"].append(base)
@@ -155,6 +158,13 @@ def _audio_ok(a: dict, caps: dict, container: str) -> tuple[bool, str]:
     return False, f"{(a.get('codec_long') or codec or 'unknown').split(' / ')[0]} audio"
 
 
+def burnable(info: dict, stream: Optional[int]) -> Optional[dict]:
+    """The image subtitle with ffprobe index ``stream``, if it can be drawn into this file's picture."""
+    if stream is None or not picture(info):
+        return None
+    return next((s for s in info.get("subtitles", []) if s.get("image") and s.get("index") == stream), None)
+
+
 def default_audio(info: dict) -> Optional[int]:
     """Position in ``info['audio']`` that a browser plays: the default track, else the first."""
     audio = info.get("audio", [])
@@ -163,13 +173,15 @@ def default_audio(info: dict) -> Optional[int]:
     return next((i for i, a in enumerate(audio) if a.get("default")), 0)
 
 
-def plan(info: dict, ext: str, caps: Optional[dict] = None, audio: Optional[int] = None) -> dict:
+def plan(info: dict, ext: str, caps: Optional[dict] = None, audio: Optional[int] = None,
+         burn: Optional[int] = None) -> dict:
     """
     How to play a file: ``{"mode": "direct" | "transcode", "reasons": [...]}``.
 
     ``audio`` is the chosen audio track (its position in ``info['audio']``).
     A browser plays only a file's default track, so choosing another one is
-    itself a reason to transcode.
+    itself a reason to transcode. So is ``burn``, an image subtitle (its
+    ffprobe index) to draw into the picture: a browser cannot show one.
     """
     caps = caps or {}
     reasons: list[str] = []
@@ -188,6 +200,8 @@ def plan(info: dict, ext: str, caps: Optional[dict] = None, audio: Optional[int]
             reasons.append(why)
         if chosen != default_audio(info):
             reasons.append(f"audio track {chosen + 1} chosen")
+    if burnable(info, burn):
+        reasons.append("image subtitles drawn into the picture")
     if not v and not info.get("audio"):
         return {"mode": "none", "reasons": ["no audio or video in this file"]}
     if reasons and not info.get("duration"):

@@ -7,23 +7,22 @@ that do not fit a local, single-user player stay out (see the last section).
 
 Already there: open files, folders, network addresses and DLNA servers; recent
 files and M3U playlists; repeat and shuffle; speed, jump to time, next frame,
-A→B loop, snapshot, fit and zoom, full screen; audio and subtitle tracks;
+A→B loop, snapshot, fit and zoom, full screen; audio and subtitle tracks
+(image subtitles drawn into the picture);
 resume; Media Information; VLC's keys; and anything ffmpeg reads, transcoded on
 the fly (5.1 surround kept) when the player cannot decode it.
 
 ## 1. Next: gaps you hit in everyday use
 
-The first four matter most for typical rips (HEVC, 5.1 E-AC-3 or DTS,
+The first three matter most for typical rips (HEVC, 5.1 E-AC-3 or DTS,
 PGS or ASS subtitles, chapters):
 
-1. **Image subtitles** (PGS, VobSub) burned in during a transcode, or rendered
-   over the video for direct play.
-2. **Styled ASS/SSA subtitles.** Converting them to WebVTT drops positioning,
+1. **Styled ASS/SSA subtitles.** Converting them to WebVTT drops positioning,
    fonts and styling; VLC renders them with libass. A WebAssembly libass
    renderer (JASSUB-style) over the video would match it.
-3. **Chapters** from the container, in the seek bar and a menu, with
+2. **Chapters** from the container, in the seek bar and a menu, with
    next/previous chapter keys.
-4. **Subtitle delay and audio delay** (VLC's G/H, J/K, which clash with
+3. **Subtitle delay and audio delay** (VLC's G/H, J/K, which clash with
    wapyt's J/K: needs a key plan).
 
 Then:
@@ -31,6 +30,11 @@ Then:
 - **Subtitle text encoding**: non-UTF-8 `.srt` files (Windows-1252, Latin-1,
   …) detected and converted (`-sub_charenc`), as VLC does.
 - **Add a subtitle file** to what is playing; subtitle size and position.
+- **Image subtitles, the rest**: files beside the video (`.sup`,
+  `.sub`/`.idx`); forced image tracks switched on by themselves; the caption
+  already showing when a seek lands inside it; a place in the player's CC
+  menu; and drawing them over a directly played video so they need no
+  transcode.
 - **Choose the audio output device** (`setSinkId`).
 - **7.1 kept as 7.1** in a transcode (it is mixed down to 5.1 now), if
   Chromium and Firefox both decode eight-channel AAC; a **stereo downmix**
