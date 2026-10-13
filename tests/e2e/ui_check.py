@@ -33,6 +33,30 @@ BASE = f"http://127.0.0.1:{PORT}"
 results = []
 
 
+# The RMS level of each of the six channels the player decodes (front left,
+# front right, centre, LFE, back left, back right), listened to for a second.
+SPEAKER_LEVELS = """async () => {
+    const ctx = new AudioContext(), source = ctx.createMediaElementSource(%s);
+    const split = ctx.createChannelSplitter(6), quiet = ctx.createGain();
+    quiet.gain.value = 0;
+    quiet.connect(ctx.destination);
+    source.connect(split);
+    const meters = [0, 1, 2, 3, 4, 5].map(n => {
+        const meter = ctx.createAnalyser();
+        split.connect(meter, n);
+        meter.connect(quiet);
+        return meter;
+    });
+    await ctx.resume();
+    await new Promise(done => setTimeout(done, 1000));
+    return meters.map(meter => {
+        const samples = new Float32Array(meter.fftSize);
+        meter.getFloatTimeDomainData(samples);
+        return Math.sqrt(samples.reduce((sum, x) => sum + x * x, 0) / samples.length);
+    });
+}"""
+
+
 def check(name, ok, detail=""):
     results.append(bool(ok))
     print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}", flush=True)
@@ -50,9 +74,12 @@ def make_media(media: Path):
     (media / "Direct Film.en.srt").write_text("1\n00:00:01,000 --> 00:00:05,000\nHello from a sidecar\n\n"
                                              "2\n00:00:20,000 --> 00:00:25,000\nTwenty seconds in\n")
     (media / "emb.srt").write_text("1\n00:00:01,000 --> 00:01:00,000\nEmbedded English\n")
+    # The main track is 5.1 with a tone in the back left speaker only, so the
+    # page can tell six real channels from a stereo downmix.
     ffmpeg("-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=24000/1001", "-f", "lavfi", "-i", "sine=frequency=330",
            "-f", "lavfi", "-i", "sine=frequency=660", "-i", str(media / "emb.srt"), "-t", "60",
-           "-map", "0", "-map", "1", "-map", "2", "-map", "3", "-c:v", "libx265", "-pix_fmt", "yuv420p10le",
+           "-filter_complex", "[1:a]pan=5.1|BL=c0[main]",
+           "-map", "0", "-map", "[main]", "-map", "2", "-map", "3", "-c:v", "libx265", "-pix_fmt", "yuv420p10le",
            "-x265-params", "log-level=error", "-c:a", "ac3", "-c:s", "srt",
            "-metadata:s:a:0", "language=eng", "-metadata:s:a:0", "title=Main", "-metadata:s:a:1", "language=fra",
            "-metadata:s:s:0", "language=eng", str(media / "HEVC Film.mkv"))
@@ -234,6 +261,10 @@ def run(tmp, media, url):
         tracks = page.evaluate(f"() => [...{video}.textTracks].map(t => t.label)")
         check("its embedded subtitles are offered", tracks == ["English"], f"{tracks}")
         playing(3, timeout=60)
+        levels = page.evaluate(SPEAKER_LEVELS % video)
+        check("its 5.1 sound reaches the player as six channels, not a stereo mix",
+              len(levels) == 6 and levels[4] > 0.05 and max(levels[:4] + levels[5:]) < levels[4] / 20,
+              " ".join(f"{x:.3f}" for x in levels))
         press("Control+t")
         page.fill("#lk-jump", "0:48")
         started = time.time()
@@ -251,7 +282,8 @@ def run(tmp, media, url):
         press("Control+i")
         page.wait_for_selector("#lk-info-mode")
         info = page.inner_text(".wapyt-modal")
-        check("Ctrl+I explains why it is transcoded", "Transcoded" in info and "HEVC" in info and "audio track 2 chosen" in info,
+        check("Ctrl+I explains why it is transcoded", "Transcoded" in info and "HEVC" in info and "audio track 2 chosen" in info
+              and "sound: AAC stereo" in info,
               re.sub(r"\s+", " ", info)[:120])
         page.keyboard.press("Escape")
         page.wait_for_selector(".wapyt-modal-overlay", state="detached")

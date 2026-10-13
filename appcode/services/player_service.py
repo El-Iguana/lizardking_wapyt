@@ -201,8 +201,13 @@ class PlayerService:
         except media.ProbeError as error:
             raise ValueError(str(error)) from error
         decision = media.plan(info, media.extension(path), caps or {}, audio)
+        transcoded = decision["mode"] == "transcode"
+        tracks = info.get("audio", [])
+        chosen = media.default_audio(info) if audio is None else audio
         return {"path": path, "name": _name(path), "info": info, "plan": decision,
-                "encoder": transcode.encoder() if decision["mode"] == "transcode" else None}
+                "encoder": transcode.encoder() if transcoded else None,
+                "audio_channels": transcode.audio_channels(tracks[chosen])
+                if transcoded and chosen is not None and 0 <= chosen < len(tracks) else None}
 
     def save_position(self, path: str, position: float, duration: float | None = None) -> None:
         store.set_position(_expand(path), float(position or 0), duration)

@@ -1008,7 +1008,8 @@ class LizardKing(MainWindow):
         if plan["reasons"]:
             out.append("<ul>" + "".join(f"<li>{e(x)}</li>" for x in plan["reasons"]) + "</ul>")
         if r.get("encoder"):
-            out.append(f"<p class='lk-muted'>Encoder: {e(r['encoder'])}</p>")
+            sound = {6: " · sound: AAC 5.1", 2: " · sound: AAC stereo"}.get(r.get("audio_channels"), "")
+            out.append(f"<p class='lk-muted'>Encoder: {e(r['encoder'])}{sound}</p>")
         tags = info.get("tags") or {}
         out.append("<h3>File</h3><table>" + rows([
             ("Name", r["name"]), ("Folder", r["path"].rsplit("/", 1)[0]), ("Container", info.get("format_long")),

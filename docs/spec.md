@@ -103,7 +103,11 @@ measurements decided each point:
 * **Encoder**: NVENC when a one-off test encode succeeds, else libx264
   (`veryfast`, CRF 21, scaled to 1080p above that). `LIZARDKING_ENCODER` forces
   one.
-* **Audio**: the chosen track to AAC stereo 192 kb/s.
+* **Audio**: the chosen track to AAC. Six channels or more become 5.1 at
+  384 kb/s (7.1 and 6.1 are mixed down to it: 5.1 is the widest AAC layout
+  every player takes); anything else stereo at 192 kb/s. Chromium decodes the
+  5.1 as six discrete channels (measured with Web Audio in the e2e test) and
+  mixes it down itself when the output device is stereo.
 * **Lifetime**: at most two encoders run; an idle one (2 min) is stopped and its
   files deleted, but the session stays, so a long pause does not break the
   player's URL: the next request restarts it. The cache is emptied at start and

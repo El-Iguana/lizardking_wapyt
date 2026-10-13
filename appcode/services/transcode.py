@@ -14,6 +14,10 @@ something:
 * Video is always re-encoded, with a keyframe forced on every boundary, so each
   segment is exactly as long as the playlist says. A copied stream can only be
   cut on its own keyframes (copy-remux is on the roadmap).
+* Sound keeps its surround: a track with six channels or more becomes 5.1 AAC
+  (which the player decodes as six channels, measured in Chromium), anything
+  else stereo. 7.1 is mixed down to 5.1: 5.1 is the widest AAC layout every
+  player takes.
 * ``-pix_fmt yuv420p`` always: 10-bit H.264 plays as sound and a black picture
   on hardware decoders.
 * The playlist type is ``event``: with ``vod`` ffmpeg holds its playlist back
@@ -47,6 +51,7 @@ SEGMENTS_AHEAD = 4          # wait for a segment this close ahead of the encoder
 WAIT_SECONDS = 45.0
 IDLE_SECONDS = 120.0        # stop an encoder nobody has asked anything of
 MAX_RUNNING = 2             # encoders at once; the oldest idle one is stopped
+AUDIO_BITRATE = {2: "192k", 6: "384k"}     # by channels out
 INIT_NAME = "init.mp4"
 FFMPEG_PLAYLIST = "ffmpeg.m3u8"
 SEGMENT_RE = re.compile(r"^(\d+)\.m4s$")
@@ -137,6 +142,11 @@ def encoder() -> str:
         return _encoder
 
 
+def audio_channels(track: dict) -> int:
+    """Channels a transcode of this track has: 5.1 for surround, else stereo."""
+    return 6 if (track.get("channels") or 0) >= 6 else 2
+
+
 def ffmpeg_args(path: str, info: dict, audio: Optional[int], out_dir: str, plan: SegmentPlan,
                 start_number: int = 0, video_encoder: str = "libx264") -> list[str]:
     """The whole command line for one run, starting at segment ``start_number``. Pure."""
@@ -161,7 +171,10 @@ def ffmpeg_args(path: str, info: dict, audio: Optional[int], out_dir: str, plan:
     tracks = info.get("audio", [])
     chosen = media.default_audio(info) if audio is None else audio
     if chosen is not None and 0 <= chosen < len(tracks):
-        args += ["-map", f"0:{tracks[chosen]['index']}", "-c:a", "aac", "-b:a", "192k", "-ac", "2"]
+        channels = audio_channels(tracks[chosen])
+        # -ac also settles the layout: DTS's 5.1(side) becomes the 5.1 AAC has.
+        args += ["-map", f"0:{tracks[chosen]['index']}", "-c:a", "aac", "-b:a", AUDIO_BITRATE[channels],
+                 "-ac", str(channels)]
     args += ["-sn", "-dn"]
     if start_at > 0:
         # Timestamps restart at zero after a seek; this puts them back. Never
