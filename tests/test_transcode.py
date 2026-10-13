@@ -149,10 +149,76 @@ def test_a_burned_subtitle_is_fitted_inside_the_picture_and_overlaid():
     assert "-filter_complex" not in transcode.ffmpeg_args("/f.mkv", WITH_PGS, None, "/tmp/s", plan, burn=2)
 
 
-def test_a_software_4k_burn_scales_down_after_the_overlay():
-    info = {**WITH_PGS, "video": [{**INFO["video"][0], "width": 3840, "height": 2160}]}
+def test_a_software_4k_burn_scales_down_before_the_overlay():
+    info = {**WITH_PGS, "video": [{**INFO["video"][0], "width": 3840, "height": 1604}]}
     args = transcode.ffmpeg_args("/f.mkv", info, None, "/tmp/s", transcode.plan_segments(100.0, 24.0), burn=3)
-    assert args[args.index("-filter_complex") + 1].endswith("eof_action=pass,scale=-2:1080[v]") and "-vf" not in args
+    assert args[args.index("-filter_complex") + 1] == (
+        "[0:3]scale=2586:1080:force_original_aspect_ratio=decrease[sub];"       # fitted to the picture as it will be
+        "[0:0]scale=-2:1080[pic];[pic][sub]overlay=(W-w)/2:(H-h)/2:eof_action=pass[v]") and "-vf" not in args
+
+
+HDR = {**INFO, "video": [{**INFO["video"][0], "width": 3840, "height": 1604, "hdr": True, "transfer": "smpte2084"}]}
+
+
+def test_an_hdr_picture_is_tone_mapped_and_an_sdr_one_left_alone():
+    plan = transcode.plan_segments(100.0, 24.0)
+    vf = lambda info, **more: (lambda a: a[a.index("-vf") + 1] if "-vf" in a else None)(
+        transcode.ffmpeg_args("/f.mkv", info, None, "/tmp/s", plan, **more))
+    mapped = vf(HDR, video_encoder="h264_nvenc", tone=True)
+    assert mapped.startswith("zscale=tin=smpte2084:min=bt2020nc:pin=bt2020:rin=tv:t=linear") and "tonemap=hable" in mapped
+    assert mapped.endswith("zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
+    # In software the picture is made smaller first: a quarter of the pixels to tone map.
+    assert vf(HDR, tone=True) == "scale=-2:1080," + mapped
+    hlg = {**HDR, "video": [{**HDR["video"][0], "transfer": "arib-std-b67"}]}
+    assert "tin=arib-std-b67" in vf(hlg, video_encoder="h264_nvenc", tone=True)
+    assert vf(HDR, video_encoder="h264_nvenc") is None            # an ffmpeg without zscale: as before
+    assert vf(INFO, video_encoder="h264_nvenc", tone=True) is None
+
+
+def test_a_burned_subtitle_goes_over_the_tone_mapped_picture():
+    info = {**WITH_PGS, "video": HDR["video"]}
+    graph = (lambda a: a[a.index("-filter_complex") + 1])(transcode.ffmpeg_args(
+        "/f.mkv", info, None, "/tmp/s", transcode.plan_segments(100.0, 24.0), video_encoder="h264_nvenc", burn=3, tone=True))
+    assert graph.startswith("[0:3]scale=3840:1604:force_original_aspect_ratio=decrease[sub];[0:0]zscale=tin=smpte2084")
+    assert graph.endswith("format=yuv420p[pic];[pic][sub]overlay=(W-w)/2:(H-h)/2:eof_action=pass[v]")
+
+
+@needs_ffmpeg
+def test_a_real_transcode_tone_maps_hdr(tmp_path, monkeypatch):
+    if not transcode.tone_mapping():
+        pytest.skip("this ffmpeg has no zscale")
+    monkeypatch.setenv("LIZARDKING_ENCODER", "libx264")
+    monkeypatch.setattr(transcode, "_encoder", None)
+    # Ten-bit PQ in BT.2020: a grey at three quarters of the signal, which is about 1000 nits.
+    src = tmp_path / "hdr.mkv"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0xBFBFBF:size=320x240:rate=25",
+                    "-t", "8", "-vf", "setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc",
+                    "-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p10le", str(src)],
+                   check=True, capture_output=True)
+    info = media.probe(str(src))
+    assert media.picture(info)["hdr"] and media.picture(info)["transfer"] == "smpte2084"
+
+    def grey(tone):
+        monkeypatch.setattr(transcode, "_tone_mapping", tone)
+        sessions = transcode.Sessions(tmp_path / f"sessions-{tone}")
+        try:
+            s = sessions.open(str(src), info)
+            sessions.segment(s, "init.mp4")
+            segment = sessions.segment(s, "0.m4s")
+            shown = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                                    "stream=pix_fmt,color_transfer", "-of", "csv=p=0", str(s.dir / "ffmpeg.m3u8")],
+                                   capture_output=True, text=True).stdout.strip()
+            raw = subprocess.run(["ffmpeg", "-v", "error", "-i", f"concat:{s.dir / 'init.mp4'}|{segment}", "-ss", "1",
+                                  "-frames:v", "1", "-vf", "crop=2:2:160:120", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                                 capture_output=True, check=True).stdout
+            return raw[0], shown
+        finally:
+            sessions.shutdown()
+
+    level, shown = grey(False)
+    assert 180 < level < 200 and "smpte2084" in shown      # squeezed into eight bits as it is: the film's white is grey
+    level, shown = grey(True)
+    assert level > 240 and "bt709" in shown and "smpte2084" not in shown      # white again, and said to be SDR
 
 
 def test_each_burned_subtitle_is_its_own_session(tmp_path):

@@ -201,6 +201,10 @@ to whole frames, forced keyframes, restart with `-ss`/`-start_number`/
 playlist, `temp_file` for atomic rewrites, `yuv420p` always. The reaper stops
 idle encoders but keeps the session so the URL stays valid.
 
+HDR (PQ, HLG) is tone mapped to SDR in a transcode: `transcode.tone_map`
+(`zscale` + `tonemap=hable`), only if this ffmpeg has `zscale`
+(`transcode.tone_mapping`). `picture_filters` orders scale, then tone map;
+a burned subtitle is overlaid after both.
 Image subtitles (PGS, VobSub): `media.burnable` / `transcode.burn_graph`.
 The chosen one (its ffprobe stream index, `burn`) is part of the session key
 and of `prepare` / `info` / `media.plan`. The page keeps it in

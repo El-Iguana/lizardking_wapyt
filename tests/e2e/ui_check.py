@@ -89,13 +89,15 @@ def make_media(media: Path):
     (media / "emb.srt").write_text("1\n00:00:01,000 --> 00:01:00,000\nEmbedded English\n")
     # The main track is 5.1 with a tone in the back left speaker only, so the
     # page can tell six real channels from a stereo downmix.
+    # Its picture is marked HDR (PQ, BT.2020), so a transcode tone maps it.
     # It also has a Blu-ray image subtitle (PGS): a magenta box low in the
     # picture for the first 58 s, which only shows if it is drawn into the video.
     (media / "emb.sup").write_bytes(pgs.sup([(0, 58, 760, 900, 400, 60)]))
     ffmpeg("-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=24000/1001", "-f", "lavfi", "-i", "sine=frequency=330",
            "-f", "lavfi", "-i", "sine=frequency=660", "-i", str(media / "emb.srt"), "-i", str(media / "emb.sup"),
-           "-t", "60", "-filter_complex", "[1:a]pan=5.1|BL=c0[main]",
-           "-map", "0", "-map", "[main]", "-map", "2", "-map", "3", "-map", "4",
+           "-t", "60", "-filter_complex", "[1:a]pan=5.1|BL=c0[main];"
+           "[0:v]setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc[hdr]",
+           "-map", "[hdr]", "-map", "[main]", "-map", "2", "-map", "3", "-map", "4",
            "-c:v", "libx265", "-pix_fmt", "yuv420p10le",
            "-x265-params", "log-level=error", "-c:a", "ac3", "-c:s:0", "srt", "-c:s:1", "copy",
            "-metadata:s:s:1", "language=spa",
@@ -331,6 +333,7 @@ def run(tmp, media, url):
         page.wait_for_selector("#lk-info-mode")
         info = page.inner_text(".wapyt-modal")
         check("Ctrl+I says the subtitle is why", "image subtitles drawn into the picture" in info, "")
+        check("Ctrl+I says the HDR picture is tone mapped", "yes, tone mapped to SDR" in info, "")
         page.keyboard.press("Escape")
         page.wait_for_selector(".wapyt-modal-overlay", state="detached")
         press("v")

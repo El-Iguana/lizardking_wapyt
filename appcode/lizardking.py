@@ -1078,7 +1078,7 @@ class LizardKing(MainWindow):
             out.append(f"<h3>Video · stream {v['index']}{' (cover art)' if v.get('attached_pic') else ''}</h3><table>" + rows([
                 ("Codec", v.get("codec_long") or v.get("codec")), ("Profile", v.get("profile")),
                 ("Resolution", f"{v.get('width')}×{v.get('height')}" if v.get("width") else None),
-                ("Frame rate", fps), ("Pixel format", v.get("pix_fmt")), ("HDR", "yes" if v.get("hdr") else None),
+                ("Frame rate", fps), ("Pixel format", v.get("pix_fmt")), ("HDR", ("yes, tone mapped to SDR" if r.get("tone_mapped") else "yes") if v.get("hdr") else None),
             ]) + "</table>")
         for n, a in enumerate(info.get("audio", [])):
             out.append(f"<h3>Audio {n + 1} · stream {a['index']}{' (default)' if a.get('default') else ''}</h3><table>" + rows([
