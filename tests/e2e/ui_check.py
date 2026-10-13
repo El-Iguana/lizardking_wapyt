@@ -28,6 +28,8 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tests"))
+import pgs  # noqa: E402 - a hand-written PGS subtitle stream
 PORT = int(os.getenv("LIZARDKING_TEST_PORT", "8790"))
 BASE = f"http://127.0.0.1:{PORT}"
 results = []
@@ -57,6 +59,17 @@ SPEAKER_LEVELS = """async () => {
 }"""
 
 
+# The colour of the picture at a point given as fractions of its width and height.
+PIXEL = """([x, y]) => {
+    const v = %s, canvas = document.createElement("canvas");
+    canvas.width = v.videoWidth;
+    canvas.height = v.videoHeight;
+    const pen = canvas.getContext("2d");
+    pen.drawImage(v, 0, 0);
+    return [...pen.getImageData(Math.round(x * v.videoWidth), Math.round(y * v.videoHeight), 1, 1).data].slice(0, 3);
+}"""
+
+
 def check(name, ok, detail=""):
     results.append(bool(ok))
     print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}", flush=True)
@@ -76,14 +89,20 @@ def make_media(media: Path):
     (media / "emb.srt").write_text("1\n00:00:01,000 --> 00:01:00,000\nEmbedded English\n")
     # The main track is 5.1 with a tone in the back left speaker only, so the
     # page can tell six real channels from a stereo downmix.
+    # It also has a Blu-ray image subtitle (PGS): a magenta box low in the
+    # picture for the first 58 s, which only shows if it is drawn into the video.
+    (media / "emb.sup").write_bytes(pgs.sup([(0, 58, 760, 900, 400, 60)]))
     ffmpeg("-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=24000/1001", "-f", "lavfi", "-i", "sine=frequency=330",
-           "-f", "lavfi", "-i", "sine=frequency=660", "-i", str(media / "emb.srt"), "-t", "60",
-           "-filter_complex", "[1:a]pan=5.1|BL=c0[main]",
-           "-map", "0", "-map", "[main]", "-map", "2", "-map", "3", "-c:v", "libx265", "-pix_fmt", "yuv420p10le",
-           "-x265-params", "log-level=error", "-c:a", "ac3", "-c:s", "srt",
+           "-f", "lavfi", "-i", "sine=frequency=660", "-i", str(media / "emb.srt"), "-i", str(media / "emb.sup"),
+           "-t", "60", "-filter_complex", "[1:a]pan=5.1|BL=c0[main]",
+           "-map", "0", "-map", "[main]", "-map", "2", "-map", "3", "-map", "4",
+           "-c:v", "libx265", "-pix_fmt", "yuv420p10le",
+           "-x265-params", "log-level=error", "-c:a", "ac3", "-c:s:0", "srt", "-c:s:1", "copy",
+           "-metadata:s:s:1", "language=spa",
            "-metadata:s:a:0", "language=eng", "-metadata:s:a:0", "title=Main", "-metadata:s:a:1", "language=fra",
            "-metadata:s:s:0", "language=eng", str(media / "HEVC Film.mkv"))
     (media / "emb.srt").unlink()
+    (media / "emb.sup").unlink()
     ffmpeg("-f", "lavfi", "-i", "color=c=orange:size=300x300", "-frames:v", "1", str(media / "cover.png"))
     for n in (1, 2, 3):
         ffmpeg("-f", "lavfi", "-i", f"sine=frequency={200 * n}", "-i", str(media / "cover.png"), "-t", "20",
@@ -287,6 +306,37 @@ def run(tmp, media, url):
               re.sub(r"\s+", " ", info)[:120])
         page.keyboard.press("Escape")
         page.wait_for_selector(".wapyt-modal-overlay", state="detached")
+
+        # 4b. An image subtitle: V steps past the text track to it, and it is in the picture.
+        press("Control+t")
+        page.fill("#lk-jump", "0:10")
+        page.press("#lk-jump", "Enter")
+        playing(10.2, timeout=60)
+
+        def caption():
+            """Whether the magenta box is where the subtitle puts it (the canvas scaled to 1280x720)."""
+            page.wait_for_function(f"() => {video}.readyState >= 3 && !{video}.paused", timeout=60000)
+            page.wait_for_timeout(2500)
+            r, g, b = page.evaluate(PIXEL % video, [640 / 1280, 620 / 720])
+            return r > 180 and g < 110 and b > 180, f"rgb({r}, {g}, {b}) at {now():.1f}s"
+
+        for _ in range(4):
+            if body("burn"):
+                break
+            press("v")
+            page.wait_for_timeout(1500)
+        shown, colour = caption()
+        check("V reaches the image subtitle and it is drawn into the picture", body("burn") and shown, colour)
+        press("Control+i")
+        page.wait_for_selector("#lk-info-mode")
+        info = page.inner_text(".wapyt-modal")
+        check("Ctrl+I says the subtitle is why", "image subtitles drawn into the picture" in info, "")
+        page.keyboard.press("Escape")
+        page.wait_for_selector(".wapyt-modal-overlay", state="detached")
+        press("v")
+        page.wait_for_function("() => !document.body.dataset.burn", timeout=30000)
+        shown, colour = caption()
+        check("V again takes it out of the picture", not shown and 10 < now() < 40, colour)
 
         # 5. Audio the browser cannot play: transcoded, audio only.
         open_file(media, "Old.wma")

@@ -29,8 +29,9 @@ can also run in an ordinary browser tab. Named for Jim Morrison, and for El Igua
   time, in the folder you were last in
 - **Plays directly** when it can, **transcodes** when it must (NVENC if you have
   it, else libx264), and tells you which and why in *Media Information*
-- **Subtitles**: `.srt` / `.ass` / `.vtt` beside the file, and text subtitles
-  inside it
+- **Subtitles**: `.srt` / `.ass` / `.vtt` beside the file, text subtitles
+  inside it, and Blu-ray and DVD image subtitles (PGS, VobSub) drawn into the
+  picture
 - **Audio tracks**: switch mid-film and carry on from the same place
 - **Playlist** panel; save it as M3U; repeat and shuffle
 - **Recent files** and **resume where you left off**

@@ -118,3 +118,92 @@ def test_a_real_transcode_serves_segments_and_restarts_on_a_seek(tmp_path, monke
         sessions.shutdown()
     time.sleep(0.1)
     assert sessions.running_count() == 0
+
+
+# Image subtitles ---------------------------------------------------------------
+
+PGS = {"index": 3, "codec": "hdmv_pgs_subtitle", "image": True, "text": False}
+WITH_PGS = {**INFO, "video": [{**INFO["video"][0], "width": 1920, "height": 804}],
+            "subtitles": [{"index": 2, "codec": "subrip", "text": True, "image": False}, PGS]}
+
+
+def test_an_image_subtitle_is_a_reason_to_transcode():
+    info = {**WITH_PGS, "format": "mov,mp4,m4a,3gp,3g2,mj2",
+            "video": [{"index": 0, "codec": "h264", "pix_fmt": "yuv420p", "attached_pic": False}],
+            "audio": [{"index": 1, "codec": "aac", "default": True}]}
+    assert media.plan(info, ".mp4")["mode"] == "direct"
+    assert media.plan(info, ".mp4", burn=3) == {"mode": "transcode", "reasons": ["image subtitles drawn into the picture"]}
+    assert media.plan(info, ".mp4", burn=2)["mode"] == "direct"      # a text subtitle is a <track>, not a burn
+    assert media.plan(info, ".mp4", burn=9)["mode"] == "direct"      # no such stream
+    assert media.burnable({**info, "video": []}, 3) is None          # nothing to draw into
+
+
+def test_a_burned_subtitle_is_fitted_inside_the_picture_and_overlaid():
+    plan = transcode.plan_segments(100.0, 24.0)
+    args = transcode.ffmpeg_args("/f.mkv", WITH_PGS, None, "/tmp/s", plan, video_encoder="h264_nvenc", burn=3)
+    assert args[args.index("-filter_complex") + 1] == (
+        "[0:3]scale=1920:804:force_original_aspect_ratio=decrease[sub];"
+        "[0:0][sub]overlay=(W-w)/2:(H-h)/2:eof_action=pass[v]")
+    assert [args[i + 1] for i, a in enumerate(args) if a == "-map"] == ["[v]", "0:1"]
+    assert "-vf" not in args and args.index("-filter_complex") > args.index("-i")
+    assert "-filter_complex" not in transcode.ffmpeg_args("/f.mkv", WITH_PGS, None, "/tmp/s", plan, burn=2)
+
+
+def test_a_software_4k_burn_scales_down_after_the_overlay():
+    info = {**WITH_PGS, "video": [{**INFO["video"][0], "width": 3840, "height": 2160}]}
+    args = transcode.ffmpeg_args("/f.mkv", info, None, "/tmp/s", transcode.plan_segments(100.0, 24.0), burn=3)
+    assert args[args.index("-filter_complex") + 1].endswith("eof_action=pass,scale=-2:1080[v]") and "-vf" not in args
+
+
+def test_each_burned_subtitle_is_its_own_session(tmp_path):
+    sessions = transcode.Sessions(tmp_path / "sessions")
+    plain, burned = sessions.open("/f.mkv", WITH_PGS), sessions.open("/f.mkv", WITH_PGS, None, 3)
+    assert plain is not burned and burned.burn == 3 and sessions.open("/f.mkv", WITH_PGS, None, 3) is burned
+    sessions.shutdown()
+
+
+@needs_ffmpeg
+def test_a_real_transcode_draws_a_pgs_subtitle_into_the_picture(tmp_path, monkeypatch):
+    import pgs
+    monkeypatch.setenv("LIZARDKING_ENCODER", "libx264")
+    monkeypatch.setattr(transcode, "_encoder", None)
+    # A Blu-ray canvas over a film cropped to 2.39:1: a box low in the canvas, from 0 s to 10 s and 22 s to 27 s.
+    (tmp_path / "subs.sup").write_bytes(pgs.sup([(0, 10, 760, 900, 400, 60), (22, 27, 760, 900, 400, 60)]))
+    src = tmp_path / "film.mkv"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:size=960x402:rate=25",
+                    "-f", "lavfi", "-i", "sine=frequency=440", "-i", str(tmp_path / "subs.sup"), "-t", "30",
+                    "-map", "0", "-map", "1", "-map", "2", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+                    "-c:s", "copy", str(src)], check=True)
+    info = media.probe(str(src))
+    stream = next(s["index"] for s in info["subtitles"] if s["image"])
+    assert media.plan(info, ".mkv", {"mkv": True}, burn=stream)["mode"] == "transcode"
+
+    def pixel(sessions, session, name, after=1):
+        """The colour where the box belongs, ``after`` seconds into a segment: the canvas
+        is 715x402 here, centred, so the box's middle is (480, 346)."""
+        segment = sessions.segment(session, name)
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-i", f"concat:{session.dir / 'init.mp4'}|{segment}",
+                              "-ss", str(after), "-frames:v", "1", "-vf", "crop=2:2:480:346", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                             capture_output=True, check=True).stdout
+        return tuple(raw[:3])
+
+    sessions, seeked = transcode.Sessions(tmp_path / "sessions"), transcode.Sessions(tmp_path / "seeked")
+    try:
+        burned = sessions.open(str(src), info, None, stream)
+        sessions.segment(burned, "init.mp4")
+        r, g, b = pixel(sessions, burned, "0.m4s")
+        assert r > 200 and g < 90 and b > 200                    # magenta: the caption is in the picture
+        assert max(pixel(sessions, burned, "7.m4s")) < 40        # 29 s: the caption has gone
+        plain = sessions.open(str(src), info)
+        sessions.segment(plain, "init.mp4")
+        assert max(pixel(sessions, plain, "0.m4s")) < 40         # and it is not there unless asked for
+        # An encoder started at 20 s (a seek) draws the next caption when it is due, at 22 s.
+        late = seeked.open(str(src), info, None, stream)
+        with late.lock:
+            seeked._start(late, 5)
+        assert late.started_at == 5 and max(pixel(seeked, late, "5.m4s", after=1)) < 40
+        r, g, b = pixel(seeked, late, "5.m4s", after=3)
+        assert r > 200 and g < 90 and b > 200
+    finally:
+        sessions.shutdown()
+        seeked.shutdown()

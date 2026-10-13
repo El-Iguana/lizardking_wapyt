@@ -168,7 +168,7 @@ class LizardKing(MainWindow):
     def load_ui(self):
         js.document.head.appendChild(el("link", rel="stylesheet", href="/lk/static/lizardking.css"))
         self.entries = []            # the queue, in the player's order: {uid, path | url, title, kind}
-        self.options = {}            # uid -> {"audio": n, "force": bool}
+        self.options = {}            # uid -> {"audio": n, "force": bool, "burn": stream, "text": n (once)}
         self.prepared = {}           # uid -> what PlayerService.prepare returned
         self.caps = {}
         self.settings = {}
@@ -296,9 +296,12 @@ class LizardKing(MainWindow):
                        for t in self._audio_tracks()] or [MenuItem("no_audio", "No audio tracks", disabled=True)]
         text = (state.get("tracks") or {}).get("text") or []
         showing = next((i for i, t in enumerate(text) if t.get("showing")), -1)
-        sub_items = [MenuItem("sub:-1", "Off", group="sub", checked=showing == -1)]
-        sub_items += [MenuItem(f"sub:{i}", t.get("label") or f"Track {i + 1}", group="sub", checked=i == showing)
-                      for i, t in enumerate(text)]
+        burn = self._current_burn()
+        sub_items = [MenuItem("sub:-1", "Off", group="sub", checked=showing == -1 and burn is None)]
+        sub_items += [MenuItem(f"sub:{i}", t.get("label") or f"Track {i + 1}", group="sub",
+                               checked=i == showing and burn is None) for i, t in enumerate(text)]
+        sub_items += [MenuItem(f"burn:{t['index']}", t["label"], group="sub", checked=t["index"] == burn)
+                      for t in self._image_subs()]
         rate = state.get("rate") or 1.0
         settings = getattr(self, "settings", {})
         fit, zoom = getattr(self, "fit", "contain"), getattr(self, "zoom", 1.0)
@@ -418,7 +421,9 @@ class LizardKing(MainWindow):
         elif kind == "audio":
             self._choose_audio(int(value))
         elif kind == "sub":
-            self.player.set_text_track(None if value == "-1" else int(value))
+            self._choose_subtitle(text=int(value))
+        elif kind == "burn":
+            self._choose_subtitle(burn=int(value))
         elif kind == "fit":
             self.fit = value
             self._apply_picture()
@@ -525,7 +530,16 @@ class LizardKing(MainWindow):
             raise ValueError("This item is no longer in the playlist.")
         entry = self.entries[n]
         opts = self.options.get(uid, {})
-        r = await PlayerService().prepare_async(entry["path"], self.caps, opts.get("audio"), bool(opts.get("force")))
+        r = await PlayerService().prepare_async(entry["path"], self.caps, opts.get("audio"), bool(opts.get("force")),
+                                                opts.get("burn"))
+        # The text track a subtitle switch asked for (-1: none), once; else the
+        # file's own defaults, unless an image subtitle is in the picture.
+        show = opts.pop("text", None)
+
+        def shown(n, track):
+            if show is not None:
+                return n == show
+            return bool(track.get("default")) and r.get("burn") is None
         self.prepared[uid] = r
         entry["title"] = r["title"]
         current = self._current()
@@ -537,11 +551,12 @@ class LizardKing(MainWindow):
             "src": r["src"], "title": r["title"], "subtitle": r.get("subtitle") or None, "kind": r["kind"],
             "poster": r.get("poster"),
             "text_tracks": [MediaTextTrack(t["src"], label=t.get("label"), language=t.get("language"),
-                                           default=bool(t.get("default"))) for t in r["text_tracks"]],
+                                           default=shown(n, t)) for n, t in enumerate(r["text_tracks"])],
         }
         if current and current["uid"] == uid:
             self._show_art(r)
         js.document.body.dataset.mode = r["mode"]
+        js.document.body.dataset.burn = "" if r.get("burn") is None else str(r["burn"])
         js.document.body.dataset.resolved = entry["path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
         if not payload.get("refresh"):
             result["start"] = r.get("start") or 0
@@ -725,21 +740,61 @@ class LizardKing(MainWindow):
             return
         self._choose_audio(((self._current_audio() or 0) + 1) % len(tracks))
 
+    def _image_subs(self):
+        current = self._current() if hasattr(self, "entries") else None
+        return (self.prepared.get(current["uid"]) or {}).get("image_subtitles", []) if current else []
+
+    def _current_burn(self):
+        current = self._current() if hasattr(self, "entries") else None
+        return (self.prepared.get(current["uid"]) or {}).get("burn") if current else None
+
+    def _choose_subtitle(self, text=-1, burn=None):
+        """Show text track ``text`` (-1: none) or image subtitle ``burn`` (its stream), never both."""
+        current = self._current()
+        if not current or (burn is not None and burn == self._current_burn()):
+            return
+        if burn is None and self._current_burn() is None:
+            self.player.set_text_track(None if text < 0 else text)
+            return
+        # An image subtitle is part of the picture: putting one in or taking
+        # it out is another transcode, carried on from the same moment.
+        opts = self.options.setdefault(current["uid"], {})
+        opts["burn"], opts["text"] = burn, -1 if burn is not None else text
+        self.player.refresh()
+
     def _cycle_subtitles(self):
+        """Off → each text track → each image subtitle → off."""
         text = (self._state().get("tracks") or {}).get("text") or []
-        if not text:
+        images = self._image_subs()
+        if not text and not images:
             self.osd("No subtitles")
             return
-        showing = next((i for i, t in enumerate(text) if t.get("showing")), -1)
-        nxt = showing + 1 if showing + 1 < len(text) else None
-        self.player.set_text_track(nxt)
-        self.osd("Subtitles off" if nxt is None else f"Subtitles: {text[nxt].get('label') or nxt + 1}")
+        burn = self._current_burn()
+        if burn is not None:
+            at = len(text) + next((i for i, t in enumerate(images) if t["index"] == burn), 0)
+        else:
+            at = next((i for i, t in enumerate(text) if t.get("showing")), -1)
+        nxt = at + 1
+        if nxt < len(text):
+            self._choose_subtitle(text=nxt)
+            self.osd(f"Subtitles: {text[nxt].get('label') or nxt + 1}")
+        elif nxt < len(text) + len(images):
+            self._choose_subtitle(burn=images[nxt - len(text)]["index"])
+            self.osd(f"Subtitles: {images[nxt - len(text)]['label']}")
+        else:
+            self._choose_subtitle()
+            self.osd("Subtitles off")
         self._rebuild_menus()
 
     def _toggle_subtitles(self):
         text = (self._state().get("tracks") or {}).get("text") or []
-        if text:
-            self.player.set_text_track(None if any(t.get("showing") for t in text) else 0)
+        images = self._image_subs()
+        if self._current_burn() is not None or any(t.get("showing") for t in text):
+            self._choose_subtitle()
+        elif text:
+            self._choose_subtitle(text=0)
+        elif images:
+            self._choose_subtitle(burn=images[0]["index"])
 
     def _toggle_playlist(self):
         shown = not self.settings.get("playlist_open", True)
@@ -996,7 +1051,8 @@ class LizardKing(MainWindow):
         if not current or not current.get("path"):
             self.osd("Media information is for local files")
             return
-        r = await PlayerService().info_async(current["path"], self.caps, (self.options.get(current["uid"]) or {}).get("audio"))
+        opts = self.options.get(current["uid"]) or {}
+        r = await PlayerService().info_async(current["path"], self.caps, opts.get("audio"), opts.get("burn"))
         info, plan = r["info"], r["plan"]
         e = html.escape
 
@@ -1033,7 +1089,8 @@ class LizardKing(MainWindow):
         for s in info.get("subtitles", []):
             out.append(f"<h3>Subtitles · stream {s['index']}</h3><table>" + rows([
                 ("Codec", s.get("codec_long") or s.get("codec")), ("Language", s.get("language")), ("Title", s.get("title")),
-                ("Shown", "as text" if s.get("text") else "no: image subtitles are not supported yet"),
+                ("Shown", "as text" if s.get("text") else "drawn into the picture (a transcode)" if s.get("image")
+                 else "no: this kind of subtitle is not supported"),
             ]) + "</table>")
         d = Dialog(f"Media Information — {r['name']}", width=640, height=560)
         body = el("div", "lk-info")

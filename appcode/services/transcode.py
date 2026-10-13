@@ -18,6 +18,13 @@ something:
   (which the player decodes as six channels, measured in Chromium), anything
   else stereo. 7.1 is mixed down to 5.1: 5.1 is the widest AAC layout every
   player takes.
+* An image subtitle (PGS, VobSub) is drawn into the picture with ``overlay``.
+  Its canvas is fitted inside the video without changing its shape: a
+  1920x1080 Blu-ray canvas over a film cropped to 1920x804 is made 1429x804
+  and centred, so captions placed in the black bars stay in the picture.
+  An encoder started in the middle of a caption (a seek) may not draw that
+  one: ffmpeg reads on from the seek point (measured: shown 8 s in, not 20 s
+  in). The next caption is on time.
 * ``-pix_fmt yuv420p`` always: 10-bit H.264 plays as sound and a black picture
   on hardware decoders.
 * The playlist type is ``event``: with ``vod`` ffmpeg holds its playlist back
@@ -147,8 +154,19 @@ def audio_channels(track: dict) -> int:
     return 6 if (track.get("channels") or 0) >= 6 else 2
 
 
+def burn_graph(picture: dict, subtitle: dict, scale: str = "") -> str:
+    """The filter graph that draws an image subtitle into the picture, ending in ``[v]``."""
+    captions = f"[0:{subtitle['index']}]"
+    if picture.get("width") and picture.get("height"):
+        fitted = f"scale={picture['width']}:{picture['height']}:force_original_aspect_ratio=decrease"
+        captions, fit = "[sub]", f"{captions}{fitted}[sub];"
+    else:
+        fit = ""
+    return f"{fit}[0:{picture['index']}]{captions}overlay=(W-w)/2:(H-h)/2:eof_action=pass{scale and ',' + scale}[v]"
+
+
 def ffmpeg_args(path: str, info: dict, audio: Optional[int], out_dir: str, plan: SegmentPlan,
-                start_number: int = 0, video_encoder: str = "libx264") -> list[str]:
+                start_number: int = 0, video_encoder: str = "libx264", burn: Optional[int] = None) -> list[str]:
     """The whole command line for one run, starting at segment ``start_number``. Pure."""
     start_at = plan.start(start_number)
     args = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-v", "error"]
@@ -158,14 +176,19 @@ def ffmpeg_args(path: str, info: dict, audio: Optional[int], out_dir: str, plan:
     args += [*media.input_args(path), "-i", path]
     picture = media.picture(info)
     if picture:
-        args += ["-map", f"0:{picture['index']}"]
+        # A software 4K encode does not keep up with playback.
+        scale = "scale=-2:1080" if video_encoder != "h264_nvenc" and (picture.get("height") or 0) > 1080 else ""
+        subtitle = media.burnable(info, burn)
+        if subtitle:
+            args += ["-filter_complex", burn_graph(picture, subtitle, scale), "-map", "[v]"]
+        else:
+            args += ["-map", f"0:{picture['index']}"]
         if video_encoder == "h264_nvenc":
             args += ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "23", "-b:v", "0", "-forced-idr", "1"]
         else:
             args += ["-c:v", video_encoder, "-preset", "veryfast", "-crf", "21"]
-            if (picture.get("height") or 0) > 1080:
-                # A software 4K encode does not keep up with playback.
-                args += ["-vf", "scale=-2:1080"]
+        if scale and not subtitle:
+            args += ["-vf", scale]
         args += ["-pix_fmt", "yuv420p", "-profile:v", "high",
                  "-force_key_frames", f"expr:gte(t,n_forced*{plan.segment:.6f})"]
     tracks = info.get("audio", [])
@@ -199,6 +222,7 @@ class Session:
     info: dict
     plan: SegmentPlan
     dir: Path
+    burn: Optional[int] = None
     proc: Optional[subprocess.Popen] = None
     started_at: int = 0
     done: set = field(default_factory=set)
@@ -234,7 +258,7 @@ class Sessions:
     def __init__(self, root: Optional[Path] = None) -> None:
         self._root = root
         self._by_id: dict[str, Session] = {}
-        self._by_key: dict[tuple[str, Optional[int]], Session] = {}
+        self._by_key: dict[tuple[str, Optional[int], Optional[int]], Session] = {}
         self._lock = threading.Lock()
         self._reaper: Optional[threading.Thread] = None
         self._stopping = threading.Event()
@@ -247,15 +271,15 @@ class Sessions:
         self._root.mkdir(parents=True, exist_ok=True)
         return self._root
 
-    def open(self, path: str, info: dict, audio: Optional[int] = None) -> Session:
-        """The session for a file and audio track, made on first use (nothing starts yet)."""
-        key = (path, audio)
+    def open(self, path: str, info: dict, audio: Optional[int] = None, burn: Optional[int] = None) -> Session:
+        """The session for a file, audio track and burned-in subtitle, made on first use (nothing starts yet)."""
+        key = (path, audio, burn)
         with self._lock:
             s = self._by_key.get(key)
             if s is None:
                 plan = plan_segments(info["duration"], (media.picture(info) or {}).get("fps") or 0.0)
                 sid = secrets.token_urlsafe(12)
-                s = Session(id=sid, path=path, audio=audio, info=info, plan=plan, dir=self.root / sid)
+                s = Session(id=sid, path=path, audio=audio, info=info, plan=plan, dir=self.root / sid, burn=burn)
                 self._by_id[sid], self._by_key[key] = s, s
             s.last_access = time.monotonic()
             self._start_reaper()
@@ -274,7 +298,7 @@ class Sessions:
         self._make_room(s)
         s.dir.mkdir(parents=True, exist_ok=True)
         (s.dir / FFMPEG_PLAYLIST).unlink(missing_ok=True)
-        args = ffmpeg_args(s.path, s.info, s.audio, str(s.dir), s.plan, n, encoder())
+        args = ffmpeg_args(s.path, s.info, s.audio, str(s.dir), s.plan, n, encoder(), s.burn)
         s.proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         s.started_at = n
         s.stderr.clear()
