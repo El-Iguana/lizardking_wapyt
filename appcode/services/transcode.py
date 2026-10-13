@@ -25,6 +25,11 @@ something:
   An encoder started in the middle of a caption (a seek) may not draw that
   one: ffmpeg reads on from the seek point (measured: shown 8 s in, not 20 s
   in). The next caption is on time.
+* An HDR picture (PQ or HLG) is tone mapped to SDR with ``zscale`` and
+  ``tonemap=hable``: squeezed into eight bits as it is, it is grey and washed
+  out. Hable was within 2% of libplacebo's BT.2390 in mean brightness on a
+  real film, and needs no GPU. Measured on a 4K HDR AV1 film with NVENC:
+  20 s in 13.0 s, against 12.7 s without (decoding is what takes the time).
 * ``-pix_fmt yuv420p`` always: 10-bit H.264 plays as sound and a black picture
   on hardware decoders.
 * The playlist type is ``event``: with ``vod`` ffmpeg holds its playlist back
@@ -154,19 +159,64 @@ def audio_channels(track: dict) -> int:
     return 6 if (track.get("channels") or 0) >= 6 else 2
 
 
-def burn_graph(picture: dict, subtitle: dict, scale: str = "") -> str:
-    """The filter graph that draws an image subtitle into the picture, ending in ``[v]``."""
-    captions = f"[0:{subtitle['index']}]"
-    if picture.get("width") and picture.get("height"):
-        fitted = f"scale={picture['width']}:{picture['height']}:force_original_aspect_ratio=decrease"
-        captions, fit = "[sub]", f"{captions}{fitted}[sub];"
-    else:
-        fit = ""
-    return f"{fit}[0:{picture['index']}]{captions}overlay=(W-w)/2:(H-h)/2:eof_action=pass{scale and ',' + scale}[v]"
+_tone_mapping: Optional[bool] = None
+
+
+def tone_mapping() -> bool:
+    """Whether this ffmpeg has ``zscale`` (libzimg) and ``tonemap``: not every build does."""
+    global _tone_mapping
+    with _encoder_lock:
+        if _tone_mapping is None:
+            try:
+                listed = subprocess.run([ffmpeg_bin(), "-hide_banner", "-filters"], capture_output=True,
+                                        timeout=20).stdout.decode(errors="replace")
+                names = {line.split()[1] for line in listed.splitlines() if len(line.split()) > 2}
+                _tone_mapping = {"zscale", "tonemap"} <= names
+            except (OSError, subprocess.TimeoutExpired):
+                _tone_mapping = False
+        return _tone_mapping
+
+
+def tone_map(picture: dict) -> str:
+    """
+    The filters that turn an HDR picture (PQ or HLG, BT.2020) into SDR BT.709.
+
+    The colours are named going in: a file that says only "PQ" leaves zscale
+    with no path between colour spaces. A film that does not give its peak is
+    taken as 1000 nits, ffmpeg's own default and what most are mastered for.
+    """
+    return (f"zscale=tin={picture['transfer']}:min=bt2020nc:pin=bt2020:rin=tv:t=linear:npl=100,format=gbrpf32le,"
+            "zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
+
+
+def picture_filters(picture: dict, software: bool, tone: bool) -> tuple[list[str], Optional[int], Optional[int]]:
+    """The filters the picture goes through, and its size after them."""
+    width, height, filters = picture.get("width"), picture.get("height"), []
+    if software and (height or 0) > 1080:
+        # A software 4K encode does not keep up with playback. First, so that
+        # tone mapping has a quarter of the pixels to do.
+        filters.append("scale=-2:1080")
+        width, height = (round(width * 1080 / height / 2) * 2 if width else None), 1080
+    if tone and picture.get("hdr"):
+        filters.append(tone_map(picture))
+    return filters, width, height
+
+
+def burn_graph(picture: dict, subtitle: dict, filters: list[str], width: Optional[int], height: Optional[int]) -> str:
+    """The filter graph that draws an image subtitle into the (filtered) picture, ending in ``[v]``."""
+    captions, film, graph = f"[0:{subtitle['index']}]", f"[0:{picture['index']}]", ""
+    if width and height:
+        graph += f"{captions}scale={width}:{height}:force_original_aspect_ratio=decrease[sub];"
+        captions = "[sub]"
+    if filters:
+        graph += f"{film}{','.join(filters)}[pic];"
+        film = "[pic]"
+    return f"{graph}{film}{captions}overlay=(W-w)/2:(H-h)/2:eof_action=pass[v]"
 
 
 def ffmpeg_args(path: str, info: dict, audio: Optional[int], out_dir: str, plan: SegmentPlan,
-                start_number: int = 0, video_encoder: str = "libx264", burn: Optional[int] = None) -> list[str]:
+                start_number: int = 0, video_encoder: str = "libx264", burn: Optional[int] = None,
+                tone: bool = False) -> list[str]:
     """The whole command line for one run, starting at segment ``start_number``. Pure."""
     start_at = plan.start(start_number)
     args = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-v", "error"]
@@ -176,19 +226,18 @@ def ffmpeg_args(path: str, info: dict, audio: Optional[int], out_dir: str, plan:
     args += [*media.input_args(path), "-i", path]
     picture = media.picture(info)
     if picture:
-        # A software 4K encode does not keep up with playback.
-        scale = "scale=-2:1080" if video_encoder != "h264_nvenc" and (picture.get("height") or 0) > 1080 else ""
+        filters, width, height = picture_filters(picture, video_encoder != "h264_nvenc", tone)
         subtitle = media.burnable(info, burn)
         if subtitle:
-            args += ["-filter_complex", burn_graph(picture, subtitle, scale), "-map", "[v]"]
+            args += ["-filter_complex", burn_graph(picture, subtitle, filters, width, height), "-map", "[v]"]
         else:
             args += ["-map", f"0:{picture['index']}"]
+            if filters:
+                args += ["-vf", ",".join(filters)]
         if video_encoder == "h264_nvenc":
             args += ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "23", "-b:v", "0", "-forced-idr", "1"]
         else:
             args += ["-c:v", video_encoder, "-preset", "veryfast", "-crf", "21"]
-        if scale and not subtitle:
-            args += ["-vf", scale]
         args += ["-pix_fmt", "yuv420p", "-profile:v", "high",
                  "-force_key_frames", f"expr:gte(t,n_forced*{plan.segment:.6f})"]
     tracks = info.get("audio", [])
@@ -298,7 +347,7 @@ class Sessions:
         self._make_room(s)
         s.dir.mkdir(parents=True, exist_ok=True)
         (s.dir / FFMPEG_PLAYLIST).unlink(missing_ok=True)
-        args = ffmpeg_args(s.path, s.info, s.audio, str(s.dir), s.plan, n, encoder(), s.burn)
+        args = ffmpeg_args(s.path, s.info, s.audio, str(s.dir), s.plan, n, encoder(), s.burn, tone_mapping())
         s.proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         s.started_at = n
         s.stderr.clear()

@@ -10,7 +10,7 @@ files and M3U playlists; repeat and shuffle; speed, jump to time, next frame,
 A→B loop, snapshot, fit and zoom, full screen; audio and subtitle tracks
 (image subtitles drawn into the picture);
 resume; Media Information; VLC's keys; and anything ffmpeg reads, transcoded on
-the fly (5.1 surround kept) when the player cannot decode it.
+the fly (5.1 surround kept, HDR tone mapped) when the player cannot decode it.
 
 ## 1. Next: gaps you hit in everyday use
 
@@ -48,8 +48,8 @@ Then:
 - **Force a transcode** from the menu, for a file the player accepts but plays
   wrongly without reporting an error (as Chrome does with AC-3 in MKV:
   silence). The page already falls back by itself when an error *is* reported.
-- **HDR to SDR tonemapping** for transcodes (`zscale` + `tonemap`, measured in
-  Orpheus at ~0.75× realtime in software).
+- **Dolby Vision without an HDR10 layer** (profile 5) tone mapped too: it is
+  not recognised as HDR now and keeps its wrong colours (libplacebo reads it).
 - **Copy-remux instead of re-encoding** when only the container or the audio is
   the problem (H.264 + DTS in .mkv, say). Needs segments cut on the source's own
   keyframes and their timestamps placed (Orpheus's `-segment_times` + `tfdt`

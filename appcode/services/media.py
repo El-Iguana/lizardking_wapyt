@@ -87,6 +87,7 @@ def normalize(raw: dict) -> dict:
                 "fps": _fps(s.get("avg_frame_rate")) or _fps(s.get("r_frame_rate")),
                 "bit_rate": int(s["bit_rate"]) if str(s.get("bit_rate", "")).isdigit() else None,
                 "hdr": s.get("color_transfer") in HDR_TRANSFERS,
+                "transfer": s.get("color_transfer"),
                 # Cover art in an audio file is a "video" stream of one frame.
                 "attached_pic": bool(disposition.get("attached_pic")),
             })

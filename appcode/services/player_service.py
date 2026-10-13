@@ -216,6 +216,7 @@ class PlayerService:
         chosen = media.default_audio(info) if audio is None else audio
         return {"path": path, "name": _name(path), "info": info, "plan": decision,
                 "encoder": transcode.encoder() if transcoded else None,
+                "tone_mapped": bool(transcoded and (media.picture(info) or {}).get("hdr") and transcode.tone_mapping()),
                 "audio_channels": transcode.audio_channels(tracks[chosen])
                 if transcoded and chosen is not None and 0 <= chosen < len(tracks) else None}
 

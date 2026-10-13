@@ -28,7 +28,8 @@ can also run in an ordinary browser tab. Named for Jim Morrison, and for El Igua
   album art. A server found once is remembered: it opens at once the next
   time, in the folder you were last in
 - **Plays directly** when it can, **transcodes** when it must (NVENC if you have
-  it, else libx264), and tells you which and why in *Media Information*
+  it, else libx264), and tells you which and why in *Media Information*;
+  **HDR** films are tone mapped, so their colours are right on an SDR screen
 - **Subtitles**: `.srt` / `.ass` / `.vtt` beside the file, text subtitles
   inside it, and Blu-ray and DVD image subtitles (PGS, VobSub) drawn into the
   picture

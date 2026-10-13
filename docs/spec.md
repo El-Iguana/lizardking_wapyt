@@ -100,6 +100,18 @@ measurements decided each point:
   merely exists may be half-written. `temp_file` makes a restarted encoder
   replace segments atomically.
 * **Always `yuv420p`**; ten-bit sources would otherwise come out as High 10.
+* **HDR is tone mapped to SDR.** A PQ (HDR10) or HLG picture squeezed into
+  eight bits as it is comes out grey and washed out, so it goes through
+  `zscale` and `tonemap=hable` to BT.709 first (`transcode.tone_map`), and
+  the output says it is BT.709. Hable was chosen by measuring: within 2% of
+  libplacebo's BT.2390 in mean brightness on a real film, and it needs no
+  GPU. It costs little because decoding dominates: a 4K HDR AV1 film on NVENC
+  encodes 20 s in 13.0 s with it and 12.7 s without. The software encoder
+  scales to 1080p *before* tone mapping, a quarter of the pixels. An ffmpeg
+  built without libzimg has no `zscale` (`transcode.tone_mapping` looks once)
+  and transcodes as before. Dolby Vision without an HDR10 layer (profile 5)
+  is not recognised as HDR and keeps its wrong colours. An HDR film the
+  player decodes itself is not transcoded: the browser does its own mapping.
 * **Encoder**: NVENC when a one-off test encode succeeds, else libx264
   (`veryfast`, CRF 21, scaled to 1080p above that). `LIZARDKING_ENCODER` forces
   one.
