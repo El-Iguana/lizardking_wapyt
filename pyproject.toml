@@ -28,7 +28,7 @@ dev = ["pytest>=8.0"]
 [tool.uv.sources]
 # Pinned to the release tag this app was verified against (as IguanaXterm and
 # Monguana are). To work on pytincture itself: uv add --editable ../pytincture
-pytincture = { git = "https://github.com/pytincture/pytincture.git", tag = "v1.0.0rc13" }
+pytincture = { git = "https://github.com/pytincture/pytincture.git", tag = "v1.0.0rc15" }
 # Server-side only, for widgetset discovery: pytincture reads __widgetset__ from
 # the installed distribution. The BROWSER installs the dev wheel in appcode/
 # (scripts in ../wa_pytincture_widgetset/scripts/dev_wheel.sh). Not editable: an

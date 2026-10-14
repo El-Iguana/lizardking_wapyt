@@ -168,7 +168,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pytincture", git = "https://github.com/pytincture/pytincture.git?tag=v1.0.0rc13" },
+    { name = "pytincture", git = "https://github.com/pytincture/pytincture.git?tag=v1.0.0rc15" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
     { name = "wapyt", directory = "../wa_pytincture_widgetset" },
 ]
@@ -386,8 +386,8 @@ wheels = [
 
 [[package]]
 name = "pytincture"
-version = "1.0.0rc13"
-source = { git = "https://github.com/pytincture/pytincture.git?tag=v1.0.0rc13#0cae8c7b1f971cdad89987cbe3866f3447d39d5e" }
+version = "1.0.0rc15"
+source = { git = "https://github.com/pytincture/pytincture.git?tag=v1.0.0rc15#661d1c812da3ef8a2d327e2a890bedf636fd4c7f" }
 dependencies = [
     { name = "fastapi" },
     { name = "itsdangerous" },
