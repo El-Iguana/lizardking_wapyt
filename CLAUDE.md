@@ -10,7 +10,8 @@ what the browser cannot play to on-demand HLS with ffmpeg. Design and reasons:
 
 Siblings under `~/Development/Pytinc/`:
 
-- `pytincture/` — the framework, pinned to tag `v1.0.0rc15` in `pyproject.toml`.
+- `pytincture/` — the framework; `pyproject.toml` pins `pytincture==1.0.0` from PyPI.
+  To work on pytincture itself: `uv add --editable ../pytincture`.
 - `wa_pytincture_widgetset/` — **wapyt**. LizardKing uses `MediaPlayer`
   (incl. `refresh()`, from WAwesome-AI/wa_pytincture_widgetset#72),
   `MenuBar`, `Listbox`, `ModalWindow`. CI checks wapyt out at
