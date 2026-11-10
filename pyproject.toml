@@ -38,6 +38,6 @@ packages = []
 [tool.lizardking]
 # The wapyt commit CI checks out beside this repo (uv.lock resolves wapyt from
 # ../wa_pytincture_widgetset). LizardKing needs MediaPlayer.refresh(), which
-# arrived in WAwesome-AI/wa_pytincture_widgetset#72; this is the v0.2.0
-# release, the first to include it.
-wapyt-ref = "a198f536405febc0a7c07ff26a5a278315f7f3f7"
+# arrived in WAwesome-AI/wa_pytincture_widgetset#72 (first released in 0.2.0);
+# this is the wapyt 0.3.0 release commit (tag v0.3.0).
+wapyt-ref = "44d37bb076ed8d693222067fe844985062ce691a"

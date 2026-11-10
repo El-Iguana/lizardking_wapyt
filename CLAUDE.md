@@ -15,8 +15,8 @@ Siblings under `~/Development/Pytinc/`:
 - `wa_pytincture_widgetset/` — **wapyt**. LizardKing uses `MediaPlayer`
   (incl. `refresh()`, from WAwesome-AI/wa_pytincture_widgetset#72),
   `MenuBar`, `Listbox`, `ModalWindow`. CI checks wapyt out at
-  `[tool.lizardking] wapyt-ref` in `pyproject.toml`: the `v0.2.0` release
-  commit. When moving it, run `uv lock` too (the lock records wapyt's version).
+  `[tool.lizardking] wapyt-ref` in `pyproject.toml`: the wapyt 0.3.0
+  release commit (tag `v0.3.0`). When moving it, run `uv lock` too (the lock records wapyt's version).
 - `iguanaxterm_wapyt/`, `monguana_wapyt/` — sibling apps with the same
   structure; their CLAUDE.md files document more pytincture traps.
 - The transcode design comes from Orpheus (`~/Development/ai_ecosystem/orpheus`,
